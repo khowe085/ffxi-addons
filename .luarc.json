@@ -1,0 +1,15 @@
+{
+  "runtime": {
+    "version": "Lua 5.1"
+  },
+  "diagnostics": {
+    "globals": ["windower", "texts", "res", "packets", "files", "_addon"]
+  },
+  "workspace": {
+    "library": ["lib"],
+    "checkThirdParty": false
+  },
+  "format": {
+    "enable": false
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Windower Addons",
+  "build": { "dockerfile": "Dockerfile" },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "sumneko.lua",
+        "johnnymorganz.stylua"
+      ],
+      "settings": {
+        "[lua]": {
+          "editor.defaultFormatter": "johnnymorganz.stylua",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}
