@@ -165,6 +165,7 @@ local function settings_path(addon_path)
 end
 
 function M.load(addon_path, defaults)
+  assert(M.logged_in(), 'lib/settings: cannot load settings — no character is logged in')
   local path    = settings_path(addon_path)
   local content = io_provider.read_file(path)
   local result  = deep_copy(defaults)
@@ -189,6 +190,7 @@ function M.stage_set(staged, key, value)
 end
 
 function M.commit(staged, addon_path)
+  assert(M.logged_in(), 'lib/settings: cannot commit settings — no character is logged in')
   local path    = settings_path(addon_path)
   local content = json.encode(staged)
   io_provider.write_file(path, content)
@@ -202,6 +204,11 @@ end
 
 function M.in_setup()
   return _in_setup
+end
+
+function M.logged_in()
+  local player = windower.ffxi.get_player()
+  return player ~= nil and player.name ~= nil and player.name ~= ''
 end
 
 -- For tests only: swap in an in-memory IO provider

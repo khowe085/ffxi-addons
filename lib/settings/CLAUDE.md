@@ -47,6 +47,20 @@ Drops the staging session without writing anything. Called on `exit -d`.
 
 Returns `true` if a staging session is currently open.
 
+### `settings.logged_in()`
+
+Returns `true` only if a character is logged in — `windower.ffxi.get_player()` is non-nil and has a non-empty `.name`. Pure read with no side effects. Use it to gate settings access from addon lifecycle events.
+
+## Login lifecycle
+
+`settings.load` and `settings.commit` both resolve a per-character path and therefore require a logged-in character. They assert `logged_in()` up front and raise a clear error (containing "logged in") instead of an opaque nil index when no character is present (e.g. the POL / character-select screen).
+
+Addons must defer settings access until a character is logged in:
+
+- Run init only when `settings.logged_in()` is true; on the `load` event, skip init if it returns false.
+- Register the Windower `login` event to (re)initialize and reload settings for the current character. `login` does not re-fire on `load`, so reloading here is what keeps each character on its own `settings.json` and prevents cross-character clobber.
+- Make init idempotent so repeated logins reuse existing UI elements rather than leaking new ones.
+
 ## Usage pattern in an addon
 
 ```lua
