@@ -2,8 +2,12 @@
   "name": "Windower Addons",
   "build": { "dockerfile": "Dockerfile" },
   "mounts": [
-    "source=${localEnv:USERPROFILE}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
+    "source=${localEnv:USERPROFILE}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=\\\\wsl.localhost\\FedoraLinux-44\\tmp\\ssh-agent.sock,target=/tmp/ssh-agent.sock,type=bind"
   ],
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": "/tmp/ssh-agent.sock"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
