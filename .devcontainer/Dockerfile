@@ -1,17 +1,9 @@
-FROM mcr.microsoft.com/devcontainers/base:ubuntu-22.04
+FROM mcr.microsoft.com/devcontainers/base:alpine-3.20
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    lua5.1 \
-    luarocks \
-    unzip \
-    curl \
+RUN apk add --no-cache lua5.1 luacheck curl unzip \
     && ln -sf /usr/bin/lua5.1 /usr/local/bin/lua \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN luarocks install luacheck
-
-RUN curl -fsSL "https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-x86_64.zip" \
-    -o /tmp/stylua.zip \
+    && curl -fsSL "https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-x86_64.zip" \
+        -o /tmp/stylua.zip \
     && unzip /tmp/stylua.zip -d /usr/local/bin/ \
     && chmod +x /usr/local/bin/stylua \
     && rm /tmp/stylua.zip
