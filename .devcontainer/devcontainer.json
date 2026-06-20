@@ -5,7 +5,8 @@
     "vscode": {
       "extensions": [
         "sumneko.lua",
-        "johnnymorganz.stylua"
+        "johnnymorganz.stylua",
+        "Anthropic.claude-code"
       ],
       "settings": {
         "[lua]": {
