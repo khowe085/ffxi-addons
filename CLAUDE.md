@@ -207,3 +207,24 @@ lua tests/lib/settings/run_tests.lua
 ## Source Control
 
 Source is hosted on a local **Forgejo** instance.
+
+## Development Workflow
+
+Every task follows this agent pipeline:
+
+### Stages
+
+| # | Agent | Action |
+|---|-------|--------|
+| 1 | **lua-dev** | Creates an isolated git worktree, implements the feature, and writes all relevant tests. |
+| 2 | **lua-reviewer** | Reviews the implementation for correctness, style, and test coverage. |
+| 3 | **lua-dev** | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
+| 4 | **lua-QA** | Runs the full test suite. |
+| 5 | — | If lua-QA finds failures, repeat from step 1. |
+| 6 | — | Convert the approved worktree to a branch for merge. |
+
+### Rules
+
+- lua-dev **must not** move past the review stage until lua-reviewer raises zero blocking issues.
+- lua-QA is the final gate — no branch is created from a worktree that has failing tests.
+- Worktree → branch conversion happens only after lua-QA explicitly approves.
