@@ -177,6 +177,7 @@ Mirror C# conventions adapted to Lua. Each file is organized in this order:
 - No semicolons
 - Align `=` signs in multi-line table/variable declarations when it improves readability
 - Avoid globals; localize frequently used upvalues
+- CRLF (`\r\n`) line endings for source files — enforced by `.gitattributes`
 
 ## Per-Addon README
 
@@ -243,7 +244,7 @@ Every addon's test suite **must** cover the [login lifecycle](#login-lifecycle).
 
 ## Source Control
 
-Source is hosted on a local **Forgejo** instance.
+Source is hosted on **GitHub** (`khowe085/ffxi-addons`); the default branch is `main`. Use the `gh` CLI for branches, pushes, and pull requests. All work lands on `main` through a pull request — never commit directly to `main`.
 
 ## Development Workflow
 
@@ -251,26 +252,27 @@ Every task follows this agent pipeline:
 
 ### Planning
 
-Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units.
+Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root, and the feature branch `feat/<plan-name>` is created off `main` at the same time. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units. All work for the plan is committed to its feature branch.
 
 ### Stages
 
 | # | Who | Action |
 |---|-----|--------|
-| 1 | **Plan agent** | Writes plan to `.planning/<plan-name>.md`; plan must be approved before proceeding. |
+| 1 | **Plan agent** | Writes plan to `.planning/<plan-name>.md` **and creates the feature branch `feat/<plan-name>` off `main`**; plan must be approved before proceeding. |
 | 2 | **Orchestrator** | Decomposes the approved plan into tasks; adds or updates the **Tasks** section in the plan file. |
 | 3 | **lua-dev** (one per task, in parallel) | Each task gets its own isolated git worktree; implements the feature and writes all relevant tests. |
 | 4 | **lua-reviewer** (per worktree) | Reviews the implementation for correctness, style, and test coverage. |
 | 5 | **lua-dev** (per worktree) | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
 | 6 | **lua-QA** | Runs the full test suite across all worktrees. |
 | 7 | — | If lua-QA finds failures, repeat from step 3. |
-| 8 | — | Convert the approved worktrees to branches for merge. |
+| 8 | — | Merge the approved task work onto the feature branch `feat/<plan-name>`. |
 | 9 | **docs agent** | Writes or updates `README.md` for each modified addon based on the approved implementation. |
+| 10 | **Orchestrator** | Commits the completed work to the feature branch, pushes it, and opens a PR against `main`. The PR description **is** the release notes for the change (a user-facing summary usable verbatim as a changelog entry). |
 
 ### Rules
 
-- Plans live in `.planning/` at the repository root.
+- Plans live in `.planning/` at the repository root; each plan has a matching `feat/<plan-name>` branch created when the plan is written, and all of its work is committed there.
 - The **Tasks** section of the plan defines parallel work units; each task maps to exactly one lua-dev worktree.
 - lua-dev **must not** move past the review stage until lua-reviewer raises zero blocking issues.
-- lua-QA is the final gate — no branch is created from a worktree that has failing tests.
-- Worktree → branch conversion happens only after lua-QA explicitly approves.
+- lua-QA is the final gate — work is not merged onto the feature branch, and no PR is opened, while tests are failing.
+- The PR against `main` is opened only after lua-QA approves, and its description contains the release notes for the change.
