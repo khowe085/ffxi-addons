@@ -212,19 +212,28 @@ Source is hosted on a local **Forgejo** instance.
 
 Every task follows this agent pipeline:
 
+### Planning
+
+Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units.
+
 ### Stages
 
-| # | Agent | Action |
-|---|-------|--------|
-| 1 | **lua-dev** | Creates an isolated git worktree, implements the feature, and writes all relevant tests. |
-| 2 | **lua-reviewer** | Reviews the implementation for correctness, style, and test coverage. |
-| 3 | **lua-dev** | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
-| 4 | **lua-QA** | Runs the full test suite. |
-| 5 | — | If lua-QA finds failures, repeat from step 1. |
-| 6 | — | Convert the approved worktree to a branch for merge. |
+| # | Who | Action |
+|---|-----|--------|
+| 1 | **Plan agent** | Writes plan to `.planning/<plan-name>.md`; plan must be approved before proceeding. |
+| 2 | **Orchestrator** | Decomposes the approved plan into tasks; adds or updates the **Tasks** section in the plan file. |
+| 3 | **lua-dev** (one per task, in parallel) | Each task gets its own isolated git worktree; implements the feature and writes all relevant tests. |
+| 4 | **lua-reviewer** (per worktree) | Reviews the implementation for correctness, style, and test coverage. |
+| 5 | **lua-dev** (per worktree) | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
+| 6 | **lua-QA** | Runs the full test suite across all worktrees. |
+| 7 | — | If lua-QA finds failures, repeat from step 3. |
+| 8 | — | Convert the approved worktrees to branches for merge. |
+| 9 | **docs agent** | Writes or updates `README.md` for each modified addon based on the approved implementation. |
 
 ### Rules
 
+- Plans live in `.planning/` at the repository root.
+- The **Tasks** section of the plan defines parallel work units; each task maps to exactly one lua-dev worktree.
 - lua-dev **must not** move past the review stage until lua-reviewer raises zero blocking issues.
 - lua-QA is the final gate — no branch is created from a worktree that has failing tests.
 - Worktree → branch conversion happens only after lua-QA explicitly approves.
