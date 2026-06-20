@@ -62,11 +62,37 @@ See [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md) for the full usage contract
 - **Events** are registered with `windower.register_event`:
   ```lua
   windower.register_event('load', function() end)
+  windower.register_event('login', function() end)    -- fires on every character entry, incl. switches
+  windower.register_event('logout', function() end)
   windower.register_event('unload', function() end)
   windower.register_event('addon command', function(...) end)
   ```
 - **Common APIs**: `windower`, `texts`, `packets`, `res` (resources), `files`
-- Character name is available via `windower.ffxi.get_player().name`
+- Character name is available via `windower.ffxi.get_player().name` — but `get_player()` returns **`nil`** when no character is logged in (POL / character-select). Never index it unguarded; see [Login lifecycle](#login-lifecycle).
+
+## Login lifecycle
+
+Addons are commonly loaded from `init.txt` **before** a character is logged in, and they stay loaded across logouts and character switches. Per-character settings depend on `windower.ffxi.get_player().name`, which is `nil` until login. Every addon **must** therefore:
+
+- **Defer settings/UI initialization until logged in.** On `load`, only initialize if a character is present (`settings.logged_in()` — see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md)). Otherwise wait for `login`.
+- **(Re)initialize on `login`.** The `login` event fires on every character entry, including switching characters. Reload the current character's settings and refresh the UI so state is always scoped to the active character. `init` **must be idempotent** — reuse the existing UI element (no leaks) and clear any open setup session.
+- **Clean up on `logout`.** Hide the UI and abandon any open setup session (`settings.discard()`), so a previous character's state is never shown or written under another character.
+
+```lua
+local function init()                 -- idempotent: safe to call on load and every login
+  if settings.in_setup() then settings.discard(); staged = nil end
+  live = settings.load(windower.addon_path, defaults)
+  if not element then element = texts.new('', text_settings) end
+  refresh_display()
+  element:show()
+end
+
+windower.register_event('load',   function() if settings.logged_in() then init() end end)
+windower.register_event('login',  function() init() end)
+windower.register_event('logout', function() on_logout() end)   -- discard staging; hide UI
+```
+
+Failing to do this causes two bugs: an opaque nil-index crash when loaded before login, and cross-character settings clobber on character switch. `echo` is the reference implementation; its `tests/echo/test_lifecycle.lua` is the template lifecycle test set (see Testing).
 
 ## Required Commands
 
@@ -198,6 +224,17 @@ lua tests/lib/settings/run_tests.lua
 - GUI logic is tested by calling underlying functions directly — never by simulating GUI events
 - Staged-settings behavior must be covered: `exit -d` must leave live settings unchanged; `exit` must persist them
 
+### Required login-lifecycle tests
+
+Every addon's test suite **must** cover the [login lifecycle](#login-lifecycle). Make the mocked logged-in player settable (e.g. a `windower.ffxi._player` field that `get_player` returns; tests set it to `nil`, `{name='Alpha'}`, etc., and restore the default) and assert:
+
+- **Loaded before login defers** — the `load` handler does not initialize and does not crash when `get_player()` is `nil`.
+- **Login initializes** — the `login` handler loads the current character's settings and shows the UI.
+- **Character switch reloads, no clobber** — after switching characters, the new character's settings load (not the previous one's); writes land in the new character's file; the previous character's file is left intact.
+- **Logout cleans up** — the UI is hidden and any open setup session is abandoned; logout is safe before init (no element) and when not in setup.
+
+`tests/echo/test_lifecycle.lua` is the reference template — copy its structure for new addons.
+
 ### In-game reload (manual testing)
 
 ```
@@ -212,19 +249,28 @@ Source is hosted on a local **Forgejo** instance.
 
 Every task follows this agent pipeline:
 
+### Planning
+
+Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units.
+
 ### Stages
 
-| # | Agent | Action |
-|---|-------|--------|
-| 1 | **lua-dev** | Creates an isolated git worktree, implements the feature, and writes all relevant tests. |
-| 2 | **lua-reviewer** | Reviews the implementation for correctness, style, and test coverage. |
-| 3 | **lua-dev** | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
-| 4 | **lua-QA** | Runs the full test suite. |
-| 5 | — | If lua-QA finds failures, repeat from step 1. |
-| 6 | — | Convert the approved worktree to a branch for merge. |
+| # | Who | Action |
+|---|-----|--------|
+| 1 | **Plan agent** | Writes plan to `.planning/<plan-name>.md`; plan must be approved before proceeding. |
+| 2 | **Orchestrator** | Decomposes the approved plan into tasks; adds or updates the **Tasks** section in the plan file. |
+| 3 | **lua-dev** (one per task, in parallel) | Each task gets its own isolated git worktree; implements the feature and writes all relevant tests. |
+| 4 | **lua-reviewer** (per worktree) | Reviews the implementation for correctness, style, and test coverage. |
+| 5 | **lua-dev** (per worktree) | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
+| 6 | **lua-QA** | Runs the full test suite across all worktrees. |
+| 7 | — | If lua-QA finds failures, repeat from step 3. |
+| 8 | — | Convert the approved worktrees to branches for merge. |
+| 9 | **docs agent** | Writes or updates `README.md` for each modified addon based on the approved implementation. |
 
 ### Rules
 
+- Plans live in `.planning/` at the repository root.
+- The **Tasks** section of the plan defines parallel work units; each task maps to exactly one lua-dev worktree.
 - lua-dev **must not** move past the review stage until lua-reviewer raises zero blocking issues.
 - lua-QA is the final gate — no branch is created from a worktree that has failing tests.
 - Worktree → branch conversion happens only after lua-QA explicitly approves.
