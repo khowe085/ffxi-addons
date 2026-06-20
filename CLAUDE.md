@@ -151,6 +151,7 @@ Mirror C# conventions adapted to Lua. Each file is organized in this order:
 - No semicolons
 - Align `=` signs in multi-line table/variable declarations when it improves readability
 - Avoid globals; localize frequently used upvalues
+- CRLF (`\r\n`) line endings for source files — enforced by `.gitattributes`
 
 ## Per-Addon README
 

@@ -1,0 +1,8 @@
+# Line endings: this is a Windows/Windower-targeted repo, so text files use
+# CRLF in the working tree. Git still normalizes blobs to LF internally, which
+# keeps diffs clean and prevents the line-ending churn that otherwise appears
+# when editors save CRLF.
+* text=auto eol=crlf
+
+# Consumed by the Linux devcontainer — must stay LF.
+.devcontainer/Dockerfile text eol=lf
