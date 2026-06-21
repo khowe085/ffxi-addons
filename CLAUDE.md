@@ -120,7 +120,7 @@ GitHub (`khowe085/ffxi-addons`), default branch `main`. Use `gh` CLI. All work l
 
 > **MANDATORY — NO EXCEPTIONS.** This workflow applies to every change regardless of size. Do not edit any source file, test, or documentation until step 1 is complete and the user has approved the plan. Skipping or shortcutting any step wastes the user's tokens and is forbidden.
 
-Before implementation: write plan to `.planning/<plan-name>.md` and create `feat/<plan-name>` off `main` (`git pull origin main` first). The plan's **Tasks** section defines parallel work units.
+Before implementation: bring local `main` to latest (`git checkout main && git pull origin main`), then create `feat/<plan-name>` **locally** off the updated `main`. Never create the branch on the remote and then pull it — local `main` is always the source of truth and stays at latest. Write the plan to `.planning/<plan-name>.md`. The plan's **Tasks** section defines parallel work units.
 
 | # | Who | Action |
 |---|-----|--------|
