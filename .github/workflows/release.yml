@@ -51,11 +51,15 @@ jobs:
 
       - name: Package addons
         run: |
+          mkdir -p staging
           for addon in ${{ steps.addons.outputs.list }}; do
-            mkdir -p staging/$addon/lib/settings
             cp -r $addon/. staging/$addon/
-            cp lib/settings/settings.lua staging/$addon/lib/settings/settings.lua
             rm -rf staging/$addon/data
+            libs=$(awk '/^## Libraries/{f=1;next} /^#/{f=0} f && /^- /{sub(/^- `?/,""); sub(/`?\r?$/,""); if(length>0) print}' "$addon/README.md")
+            for lib in $libs; do
+              mkdir -p "staging/$addon/$lib"
+              cp -r "$lib/." "staging/$addon/$lib/"
+            done
             version=$(grep -m1 "_addon\.version" $addon/$addon.lua | grep -oE "'[0-9.]+'" | tr -d "'")
             (cd staging && zip -r ../$addon-v${version}.zip $addon/)
           done

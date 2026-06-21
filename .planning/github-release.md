@@ -19,12 +19,23 @@ The test suite is unaffected: tests already call `require('lib.settings.settings
 ```
 <addon-name>.lua
 README.md
-lib/
-  settings/
-    settings.lua    ← copy of repo-root lib/settings/settings.lua
+<lib>/          ← one entry per lib listed in README.md ## Libraries
+  ...
 ```
 
 Files explicitly excluded from the zip: `data/` (runtime/user config), `tests/`.
+
+### Library declaration
+
+Each addon's `README.md` declares its required libs in a `## Libraries` section:
+
+```markdown
+## Libraries
+
+- `lib/settings`
+```
+
+The packaging step parses this section with `awk` and copies each listed lib directory into the addon staging area. Only libs actually declared are bundled — no implicit dependencies.
 
 ## Release versioning and naming
 
