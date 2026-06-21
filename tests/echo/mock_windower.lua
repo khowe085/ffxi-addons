@@ -34,3 +34,4 @@ texts = {
 -- run_tests dofiles this mock first, so this runs once before any test file.
 local settings = require('lib.settings.settings')
 package.loaded['../../lib/settings'] = settings
+package.loaded['texts']              = texts
