@@ -128,6 +128,27 @@ local M = {}
 
 local _in_setup = false
 
+-- Create dir and any missing parents using only windower.create_dir (no shell-out).
+-- create_dir is not recursive, so walk the path and create each segment in turn.
+local function ensure_dir(dir)
+  if not (windower and windower.create_dir) then return end
+  -- Preserve the full leading separator run so UNC roots (\\server\share) and
+  -- POSIX absolute roots (/a/b) are not collapsed.
+  local prefix = dir:match('^([/\\]+)') or ''
+  local accum = prefix
+  for segment in dir:gmatch('[^/\\]+') do
+    if accum == '' or accum == prefix then
+      accum = accum .. segment
+    else
+      accum = accum .. '/' .. segment
+    end
+    -- Skip a bare-root accumulator (e.g. just '/' or '\\') with no segment yet.
+    if accum ~= prefix then
+      windower.create_dir(accum)
+    end
+  end
+end
+
 -- IO provider — swapped out in tests via M._set_io_provider
 local io_provider = {
   read_file = function(path)
@@ -138,13 +159,12 @@ local io_provider = {
     return content
   end,
   write_file = function(path, content)
-    local dir = path:match('^(.*)[/\\][^/\\]+$')
-    if dir then
-      -- attempt both POSIX and Windows directory creation; ignore errors
-      os.execute('mkdir -p "' .. dir .. '" 2>/dev/null')
-      os.execute('md "' .. dir:gsub('/', '\\') .. '" 2>nul')
+    local f = io.open(path, 'w')
+    if not f then
+      local dir = path:match('^(.*)[/\\][^/\\]+$')
+      if dir then ensure_dir(dir) end
+      f = assert(io.open(path, 'w'), 'cannot open for writing: ' .. path)
     end
-    local f = assert(io.open(path, 'w'), 'cannot open for writing: ' .. path)
     f:write(content)
     f:close()
   end,
@@ -214,6 +234,12 @@ end
 -- For tests only: swap in an in-memory IO provider
 function M._set_io_provider(provider)
   io_provider = provider
+end
+
+-- For tests only: the live IO provider, so the real default write_file can be
+-- exercised directly without going through commit's per-character path.
+function M._io_provider()
+  return io_provider
 end
 
 return M
