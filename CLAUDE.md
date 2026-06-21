@@ -103,11 +103,13 @@ GitHub (`khowe085/ffxi-addons`), default branch `main`. Use `gh` CLI. All work l
 
 ## Development Workflow
 
+> **MANDATORY — NO EXCEPTIONS.** This workflow applies to every change regardless of size. Do not edit any source file, test, or documentation until step 1 is complete and the user has approved the plan. Skipping or shortcutting any step wastes the user's tokens and is forbidden.
+
 Before implementation: write plan to `.planning/<plan-name>.md` and create `feat/<plan-name>` off `main` (`git pull origin main` first). The plan's **Tasks** section defines parallel work units.
 
 | # | Who | Action |
 |---|-----|--------|
-| 1 | **Plan agent** | Writes `.planning/<plan-name>.md` and creates `feat/<plan-name>`; wait for approval |
+| 1 | **Plan agent** | Writes `.planning/<plan-name>.md` and creates `feat/<plan-name>`; **STOP and wait for user approval** |
 | 2 | **Orchestrator** | Decomposes into tasks; updates **Tasks** section in plan |
 | 3 | **lua-dev** (per task, parallel) | Isolated worktree; implements feature + tests |
 | 4 | **lua-reviewer** (per worktree) | Reviews for correctness, style, test coverage |
@@ -117,4 +119,4 @@ Before implementation: write plan to `.planning/<plan-name>.md` and create `feat
 | 8 | **docs agent** | Updates `README.md` for each modified addon |
 | 9 | **Orchestrator** | Commits, pushes, opens PR; PR description = release notes |
 
-**Rules**: applies to all work (features and bugfixes alike); no shortcuts; worktrees removed after merge; PR opened only after lua-QA approves.
+**Rules**: applies to all work (features and bugfixes alike); no shortcuts; no inline edits; worktrees removed after merge; PR opened only after lua-QA approves.
