@@ -28,24 +28,22 @@ Files explicitly excluded from the zip: `data/` (runtime/user config), `tests/`.
 
 ## Release versioning and naming
 
-- **Trigger**: `pull_request` event, `types: [closed]`, `if: github.event.pull_request.merged == true`
-- **Tag**: `v<YYYY.MM.DD>-pr<PR-number>` (e.g., `v2026.06.21-pr7`), created by the workflow
-- **Release name**: `${{ github.event.pull_request.title }}`
-- **Release body**: `${{ github.event.pull_request.body }}`
+- **Trigger**: `workflow_dispatch` (manual trigger from the GitHub Actions UI)
+- **Inputs**:
+  - `release_name` (required) — the GitHub Release title
+  - `release_notes` (required, multiline) — the release body / changelog text
+- **Tag**: `v<YYYY.MM.DD>` (e.g., `v2026.06.21`), generated from the current UTC date at run time; if multiple releases land on the same day, append `-2`, `-3`, etc.
 - **Asset filenames**: `<addon-name>-v<_addon.version>.zip` — version extracted from `_addon.version` in the Lua source via grep/sed
 
 ## Detecting changed addons
 
-Diff between `github.event.pull_request.base.sha` and `HEAD` (the merge commit), extract top-level directory names, filter to directories that contain a matching `.lua` entry point (excluding `lib/`, `tests/`, `.github/`, `.planning/`).
+Scan the repository for top-level directories that contain a matching `.lua` entry point (i.e. `<dir>/<dir>.lua` exists), excluding `lib/`, `tests/`, `.github/`, `.planning/`. All qualifying addons are packaged on every manual run.
 
 ```bash
-git diff --name-only $BASE_SHA $HEAD_SHA \
-  | grep -E '^[^/]+/' \
-  | cut -d/ -f1 \
-  | sort -u \
-  | while read dir; do
-      [ -f "$dir/$dir.lua" ] && echo "$dir"
-    done
+for dir in */; do
+  dir="${dir%/}"
+  [ -f "$dir/$dir.lua" ] && echo "$dir"
+done
 ```
 
 ## Tasks
@@ -77,27 +75,30 @@ Workflow outline:
 name: Release
 
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'Release title'
+        required: true
+      release_notes:
+        description: 'Release notes / changelog'
+        required: true
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Detect changed addons
+      - name: Detect addons
         id: addons
         run: |
-          # list addon dirs changed in this PR
-          ...
+          # all top-level dirs with a matching .lua entry point
+          addons=$(for d in */; do d="${d%/}"; [ -f "$d/$d.lua" ] && echo "$d"; done)
+          echo "list=$addons" >> $GITHUB_OUTPUT
 
       - name: Package addons
         run: |
@@ -112,12 +113,24 @@ jobs:
             (cd staging && zip -r ../$addon-v${version}.zip $addon/)
           done
 
+      - name: Generate tag
+        id: tag
+        run: |
+          base="v$(date -u +%Y.%m.%d)"
+          # append suffix if tag already exists
+          tag="$base"
+          n=2
+          while git ls-remote --tags origin "refs/tags/$tag" | grep -q .; do
+            tag="${base}-${n}"; n=$((n+1))
+          done
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event.pull_request.merged_at && '...' }}-pr${{ github.event.pull_request.number }}
-          name: ${{ github.event.pull_request.title }}
-          body: ${{ github.event.pull_request.body }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ github.event.inputs.release_name }}
+          body: ${{ github.event.inputs.release_notes }}
           files: "*.zip"
 ```
 
