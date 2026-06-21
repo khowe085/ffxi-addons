@@ -53,8 +53,7 @@ function echo.cmd_set(text)
     refresh_display(text, staged_settings.pos_x, staged_settings.pos_y)
   else
     live_settings.text = text
-    local tmp     = settings_lib.open_setup(live_settings)
-    live_settings = settings_lib.commit(tmp, windower.addon_path)
+    live_settings = settings_lib.commit(live_settings, windower.addon_path)
     refresh_display(live_settings.text, live_settings.pos_x, live_settings.pos_y)
   end
 end
