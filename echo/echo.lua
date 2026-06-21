@@ -1,4 +1,4 @@
-local settings_lib = require('../../lib/settings')
+local settings_lib = require('lib.settings.settings')
 local texts        = require('texts')
 
 _addon.name     = 'Echo'

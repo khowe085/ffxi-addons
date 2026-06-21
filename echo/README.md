@@ -28,6 +28,10 @@ All commands use the alias `ec` (or the full name `echo`).
 | `//ec exit -d`     | Discard staged position changes and close setup.                                                      |
 | `//ec help`        | Print the command list in chat.                                                                       |
 
+## Libraries
+
+- `lib/settings`
+
 ## Configuration
 
 Settings are stored per character at `data/{CharacterName}/settings.json` and managed through `lib/settings`.

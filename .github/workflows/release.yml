@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'Release title'
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate tag
+        id: tag
+        run: |
+          base="v$(date -u +%Y.%m.%d)"
+          tag="$base"
+          n=2
+          while git ls-remote --tags origin "refs/tags/$tag" | grep -q .; do
+            tag="${base}-${n}"; n=$((n+1))
+          done
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prev=$(git tag --sort=-version:refname | head -1)
+          args="--field tag_name=${{ steps.tag.outputs.tag }}"
+          [ -n "$prev" ] && args="$args --field previous_tag_name=$prev"
+          body=$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            $args --jq '.body')
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$body"     >> $GITHUB_OUTPUT
+          echo "EOF"       >> $GITHUB_OUTPUT
+
+      - name: Detect addons
+        id: addons
+        run: |
+          addons=$(for d in */; do d="${d%/}"; [ -f "$d/$d.lua" ] && echo "$d"; done | tr '\n' ' ')
+          echo "list=$addons" >> $GITHUB_OUTPUT
+
+      - name: Package addons
+        run: |
+          mkdir -p staging
+          for addon in ${{ steps.addons.outputs.list }}; do
+            cp -r $addon/. staging/$addon/
+            rm -rf staging/$addon/data
+            libs=$(awk '/^## Libraries/{f=1;next} /^#/{f=0} f && /^- /{sub(/^- `?/,""); sub(/`?\r?$/,""); if(length>0) print}' "$addon/README.md")
+            for lib in $libs; do
+              mkdir -p "staging/$addon/$lib"
+              cp -r "$lib/." "staging/$addon/$lib/"
+            done
+            version=$(grep -m1 "_addon\.version" $addon/$addon.lua | grep -oE "'[0-9.]+'" | tr -d "'")
+            (cd staging && zip -r ../$addon-v${version}.zip $addon/)
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ github.event.inputs.release_name }}
+          body: ${{ steps.notes.outputs.body }}
+          files: "*.zip"
