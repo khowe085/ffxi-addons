@@ -46,22 +46,22 @@ Failing these causes a nil-index crash on load and cross-character settings clob
 
 Every addon must implement:
 
-| Sub-command | Behavior |
-|-------------|----------|
-| `setup`     | Opens the configuration GUI |
-| `exit`      | Saves staged changes and closes the GUI |
-| `exit -d`   | Discards staged changes and closes the GUI |
-| `help`      | Prints available commands to chat |
+| Sub-command | Aliases | Behavior |
+|-------------|---------|----------|
+| `config`    | `c`     | Opens the configuration GUI |
+| `save`      | `s`     | Saves staged changes and closes the GUI |
+| `discard`   | `d`     | Discards staged changes and closes the GUI |
+| `help`      |         | Prints available commands to chat |
 
 Unknown commands fall through to `print_help()`.
 
-## Configuration GUI (`setup`)
+## Configuration GUI (`config`)
 
 - Use `texts` library or imgui-style overlay; GUI open/closed state is ephemeral — never persist it
 - All reads/writes go through `lib/settings`; never access `data/` directly
-- GUI operates on a **staging copy**; changes are not written until `exit` commits them (`exit -d` drops them)
+- GUI operates on a **staging copy**; changes are not written until `save` commits them (`discard` drops them)
 - GUI callbacks must delegate to named, testable functions — never modify state inline
-- Any persistent UI element **must** be draggable during setup; dragging disabled on close; position written via `settings.stage_set`
+- Any persistent UI element **must** be draggable during config; dragging disabled on close; position written via `settings.stage_set`
 
 ## Code Style
 
@@ -87,7 +87,7 @@ Harness conventions:
 - `mock_windower.lua` — stubs for `windower`, `texts`, and other globals
 - `test_*.lua` — one file per logical area; `run_tests.lua` discovers and runs them all, exits non-zero on failure
 - No live `data/` writes; no game client dependency; GUI logic tested by calling functions directly
-- Staged-settings: `exit -d` must leave live settings unchanged; `exit` must persist them
+- Staged-settings: `discard` must leave live settings unchanged; `save` must persist them
 
 **Required lifecycle tests** (every addon): make `windower.ffxi._player` settable and assert:
 - Load before login defers without crashing

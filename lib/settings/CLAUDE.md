@@ -25,7 +25,7 @@ Returns the live settings table.
 
 ### `settings.open_setup(live)`
 
-Opens a staging session. Creates a deep in-memory copy of `live` settings that GUI actions modify. Must be called when the user runs `setup`.
+Opens a staging session. Creates a deep in-memory copy of `live` settings that GUI actions modify. Must be called when the user runs `config`.
 
 - `live` — the live settings table returned by `settings.load`
 
@@ -37,11 +37,11 @@ Updates a single key in the staged settings table. GUI action functions (e.g., `
 
 ### `settings.commit(staged, addon_path)`
 
-Serializes the staged settings to JSON, writes them to `data/{CharacterName}/settings.json`, and returns the new live settings table. Called on `exit` (save).
+Serializes the staged settings to JSON, writes them to `data/{CharacterName}/settings.json`, and returns the new live settings table. Called on `save`.
 
 ### `settings.discard()`
 
-Drops the staging session without writing anything. Called on `exit -d`.
+Drops the staging session without writing anything. Called on `discard`.
 
 ### `settings.in_setup()`
 
@@ -75,12 +75,12 @@ local function setup_open()
   staged_settings = settings_lib.open_setup(live_settings)
 end
 
-local function setup_exit_save()
+local function setup_close_save()
   live_settings   = settings_lib.commit(staged_settings, windower.addon_path)
   staged_settings = nil
 end
 
-local function setup_exit_discard()
+local function setup_close_discard()
   settings_lib.discard()
   staged_settings = nil
 end

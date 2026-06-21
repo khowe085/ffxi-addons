@@ -11,18 +11,16 @@ Create the following files, following all conventions in CLAUDE.md and lib/setti
 2. `_addon` metadata (name, author placeholder, version `1.0.0`, commands `{addon-name, alias}`)
 3. State block (`live_settings`, `staged_settings`)
 4. Forward declarations for any private functions
-5. Public functions (alphabetical): `change_pos`, `setup_exit_discard`, `setup_exit_save`, `setup_open`, `print_help`
+5. Public functions (alphabetical): `change_pos`, `setup_close_discard`, `setup_close_save`, `setup_open`, `print_help`
 6. Private functions block (empty, with a comment placeholder)
-7. Event registrations: `load`, `unload`, `addon command` (with dispatch table containing `exit`, `help`, `setup`)
-
-The `addon command` handler must check if the first arg to `exit` is `-d` to route to `setup_exit_discard` vs `setup_exit_save`.
+7. Event registrations: `load`, `unload`, `addon command` (with dispatch table containing `c`, `config`, `d`, `discard`, `help`, `s`, `save`)
 
 Default settings should include `pos_x = 0` and `pos_y = 0`.
 
 **`<addon-name>/README.md`** — per-addon README with:
 - One-sentence description placeholder
 - Installation section
-- Commands table listing `setup`, `exit`, `exit -d`, and `help` with the alias prefix
+- Commands table listing `config`/`c`, `save`/`s`, `discard`/`d`, and `help` with the alias prefix
 - Configuration section describing `data/{CharacterName}/settings.json`
 
 **`tests/<addon-name>/mock_windower.lua`** — stubs for `windower`, `texts`, and any other Windower globals the addon uses. The mock must expose:
@@ -35,9 +33,9 @@ Default settings should include `pos_x = 0` and `pos_y = 0`.
 
 **`tests/<addon-name>/test_commands.lua`** — initial test file covering:
 - `help` command does not error
-- `setup` opens a staging session (`settings_lib.in_setup()` returns true after)
-- `exit -d` discards without writing
-- `exit` commits staged settings
+- `config` opens a staging session (`settings_lib.in_setup()` returns true after)
+- `discard` discards without writing
+- `save` commits staged settings
 
 After creating all files, print a summary of what was created and remind the user to:
 1. Fill in their author name in `_addon.author`
