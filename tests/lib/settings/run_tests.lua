@@ -16,5 +16,6 @@ dofile(dir .. 'mock_windower.lua')
 run(dir .. 'test_load.lua')
 run(dir .. 'test_staging.lua')
 run(dir .. 'test_login.lua')
+run(dir .. 'test_config_gui.lua')
 
 io.write('\nAll tests passed.\n')

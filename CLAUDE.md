@@ -46,22 +46,37 @@ Failing these causes a nil-index crash on load and cross-character settings clob
 
 Every addon must implement:
 
-| Sub-command | Behavior |
-|-------------|----------|
-| `setup`     | Opens the configuration GUI |
-| `exit`      | Saves staged changes and closes the GUI |
-| `exit -d`   | Discards staged changes and closes the GUI |
-| `help`      | Prints available commands to chat |
+| Sub-command | Aliases | Behavior |
+|-------------|---------|----------|
+| `config`    | `c`     | Opens the configuration GUI |
+| `save`      | `s`     | Saves staged changes and closes the GUI |
+| `discard`   | `d`     | Discards staged changes and closes the GUI |
+| `help`      |         | Prints available commands to chat |
 
 Unknown commands fall through to `print_help()`.
 
-## Configuration GUI (`setup`)
+## Configuration GUI (`config`)
 
-- Use `texts` library or imgui-style overlay; GUI open/closed state is ephemeral — never persist it
+Every addon **must** build its config GUI on the shared `lib/settings/config_gui` helper, which
+renders the window **chrome** (header, optional tab bar, footer Save/Discard buttons, right-side
+scroll buttons, image backdrop, dragging, and click-blocking). The addon supplies only the **body**
+content. `echo` is the reference implementation; see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md)
+for the `config_gui` API.
+
+- **Header** shows the addon name; **footer** has **Save** / **Discard** buttons wired to the
+  `save` / `discard` handlers — closing via command must behave exactly like clicking the button
+- **Body is a list of tabs** (always a list, even for one tab; the tab bar is hidden when there is
+  only one). Each tab is either a **text tab** (`{ title, lines }`, scrolled by the helper) or a
+  **custom tab** (`{ title, render, on_mouse, hide }`) that draws an interactive body into a
+  provided viewport — supports image-rich, clickable GUIs
+- The addon defines the **window size**; the body **scrolls** within it (up/down buttons on the right)
+- `config` while the window is open is a **no-op**
+- **Mouse events over the open window must be consumed** so clicks never pass through to the game
+- GUI open/closed state is ephemeral — never persist it
 - All reads/writes go through `lib/settings`; never access `data/` directly
-- GUI operates on a **staging copy**; changes are not written until `exit` commits them (`exit -d` drops them)
+- GUI operates on a **staging copy**; changes are not written until `save` commits them (`discard` drops them)
 - GUI callbacks must delegate to named, testable functions — never modify state inline
-- Any persistent UI element **must** be draggable during setup; dragging disabled on close; position written via `settings.stage_set`
+- Any persistent UI element **must** be draggable during config; dragging disabled on close; position written via `settings.stage_set`
 
 ## Code Style
 
@@ -87,7 +102,7 @@ Harness conventions:
 - `mock_windower.lua` — stubs for `windower`, `texts`, and other globals
 - `test_*.lua` — one file per logical area; `run_tests.lua` discovers and runs them all, exits non-zero on failure
 - No live `data/` writes; no game client dependency; GUI logic tested by calling functions directly
-- Staged-settings: `exit -d` must leave live settings unchanged; `exit` must persist them
+- Staged-settings: `discard` must leave live settings unchanged; `save` must persist them
 
 **Required lifecycle tests** (every addon): make `windower.ffxi._player` settable and assert:
 - Load before login defers without crashing
@@ -103,11 +118,13 @@ GitHub (`khowe085/ffxi-addons`), default branch `main`. Use `gh` CLI. All work l
 
 ## Development Workflow
 
+> **MANDATORY — NO EXCEPTIONS.** This workflow applies to every change regardless of size. Do not edit any source file, test, or documentation until step 1 is complete and the user has approved the plan. Skipping or shortcutting any step wastes the user's tokens and is forbidden.
+
 Before implementation: write plan to `.planning/<plan-name>.md` and create `feat/<plan-name>` off `main` (`git pull origin main` first). The plan's **Tasks** section defines parallel work units.
 
 | # | Who | Action |
 |---|-----|--------|
-| 1 | **Plan agent** | Writes `.planning/<plan-name>.md` and creates `feat/<plan-name>`; wait for approval |
+| 1 | **Plan agent** | Writes `.planning/<plan-name>.md` and creates `feat/<plan-name>`; **STOP and wait for user approval** |
 | 2 | **Orchestrator** | Decomposes into tasks; updates **Tasks** section in plan |
 | 3 | **lua-dev** (per task, parallel) | Isolated worktree; implements feature + tests |
 | 4 | **lua-reviewer** (per worktree) | Reviews for correctness, style, test coverage |
@@ -117,4 +134,4 @@ Before implementation: write plan to `.planning/<plan-name>.md` and create `feat
 | 8 | **docs agent** | Updates `README.md` for each modified addon |
 | 9 | **Orchestrator** | Commits, pushes, opens PR; PR description = release notes |
 
-**Rules**: applies to all work (features and bugfixes alike); no shortcuts; worktrees removed after merge; PR opened only after lua-QA approves.
+**Rules**: applies to all work (features and bugfixes alike); no shortcuts; no inline edits; worktrees removed after merge; PR opened only after lua-QA approves.

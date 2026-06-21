@@ -28,6 +28,6 @@ Read the existing `<addon-name>/<addon-name>.lua` before making any changes.
    ```
    | `//alias <command_name>` | <description> |
    ```
-   Insert it in the table in a logical position (after `setup`/`exit`/`help` if unrelated, or near related commands).
+   Insert it in the table in a logical position (after `config`/`save`/`discard`/`help` if unrelated, or near related commands).
 
 After making changes, print a brief summary of what was added and remind the user to implement the function body.

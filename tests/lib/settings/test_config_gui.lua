@@ -1,0 +1,548 @@
+local config_gui = require('lib.settings.config_gui')
+
+local pass = 0
+local fail = 0
+
+local function test(name, fn)
+  local ok, err = pcall(fn)
+  if ok then
+    pass = pass + 1
+    io.write('  pass: ' .. name .. '\n')
+  else
+    fail = fail + 1
+    io.write('  FAIL: ' .. name .. '\n    ' .. tostring(err) .. '\n')
+  end
+end
+
+local function assert_eq(expected, actual, msg)
+  if expected ~= actual then
+    error(string.format('%s\n    expected: %s\n      actual: %s',
+      msg or 'values not equal', tostring(expected), tostring(actual)), 2)
+  end
+end
+
+local function assert_true(v, msg)
+  if not v then error(msg or 'expected true', 2) end
+end
+
+local function contains(haystack, needle)
+  return (haystack or ''):find(needle, 1, true) ~= nil
+end
+
+-- Exact whole-line membership: avoids 'line 1' matching 'line 10'.
+local function has_line(body, line)
+  for got in (body .. '\n'):gmatch('(.-)\n') do
+    if got == line then return true end
+  end
+  return false
+end
+
+-- Build a controller with recorded callback fires.
+local function make_gui(opts)
+  opts = opts or {}
+  local rec = { save = 0, discard = 0, moves = {} }
+  local gui = config_gui.new({
+    texts      = texts,
+    images     = opts.images,
+    title      = opts.title or 'Echo',
+    on_save    = function() rec.save = rec.save + 1 end,
+    on_discard = function() rec.discard = rec.discard + 1 end,
+    on_move    = function(x, y) rec.moves[#rec.moves + 1] = { x = x, y = y } end,
+    pos        = opts.pos or { x = 100, y = 100 },
+    size       = opts.size or { width = 320, height = 160 },
+  })
+  return gui, rec
+end
+
+local function text_tab(title, n)
+  local lines = {}
+  for i = 1, n do lines[i] = title .. ' line ' .. i end
+  return { title = title, lines = lines }
+end
+
+-- Center point of an element (uses the mock's tracked geometry).
+local function center(el)
+  return el._x + math.floor(el._width / 2), el._y + math.floor(el._height / 2)
+end
+
+-- ----
+
+test('construction honors size: window rect matches width/height', function()
+  local gui = make_gui({ pos = { x = 50, y = 60 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 3) })
+  -- A point at the far corner inside the window is consumed; just outside is not.
+  assert_true(gui:handle_mouse(3, 50 + 319, 60 + 159), 'inside far corner consumed')
+  assert_eq(false, gui:handle_mouse(3, 50 + 320, 60 + 160), 'just outside not consumed')
+  assert_eq(false, gui:handle_mouse(3, 49, 60), 'just left of window not consumed')
+end)
+
+test('construction: footer sits within the window bottom', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 3) })
+  -- The footer row is the bottom row of the window; clicking it fires Save/Discard.
+  assert_true(gui:handle_mouse(1, 10, 152), 'click near bottom inside window consumed')
+  assert_eq(1, rec.save, 'bottom-left click hit the Save button (footer at window bottom)')
+end)
+
+test('show/hide/is_open', function()
+  local gui = make_gui()
+  assert_eq(false, gui:is_open(), 'closed initially')
+  gui:show({ text_tab('General', 2) })
+  assert_eq(true, gui:is_open(), 'open after show')
+  gui:hide()
+  assert_eq(false, gui:is_open(), 'closed after hide')
+end)
+
+test('images backdrop is created, sized to the window, and shown/hidden with it', function()
+  local gui = make_gui({ pos = { x = 40, y = 50 }, images = images, size = { width = 320, height = 160 } })
+  local bg = gui:_bg_for_test()
+  assert_true(bg ~= nil, 'backdrop created when images injected')
+  gui:show({ text_tab('General', 2) })
+  assert_eq(40, bg._x, 'backdrop at window x')
+  assert_eq(50, bg._y, 'backdrop at window y')
+  assert_eq(320, bg._width, 'backdrop spans window width')
+  assert_eq(160, bg._height, 'backdrop spans window height')
+  assert_eq(true, bg._visible, 'backdrop shown with window')
+  gui:hide()
+  assert_eq(false, bg._visible, 'backdrop hidden with window')
+end)
+
+test('construction without images has no backdrop but still blocks clicks', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  assert_eq(nil, gui:_bg_for_test(), 'no backdrop when images omitted')
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(3, 10, 10), 'right-click over window still blocked')
+end)
+
+test('Save click fires on_save and returns true', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 } })
+  gui:show({ text_tab('General', 2) })
+  -- Save occupies left half of the footer row.
+  assert_true(gui:handle_mouse(1, 10, 152), 'save click consumed')
+  assert_eq(1, rec.save, 'on_save fired once')
+  assert_eq(0, rec.discard, 'discard not fired')
+end)
+
+test('Discard click fires on_discard and returns true', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 } })
+  gui:show({ text_tab('General', 2) })
+  -- Discard occupies right half of the footer row.
+  assert_true(gui:handle_mouse(1, 250, 152), 'discard click consumed')
+  assert_eq(1, rec.discard, 'on_discard fired once')
+  assert_eq(0, rec.save, 'save not fired')
+end)
+
+test('click on empty window space returns true but fires no callback', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 } })
+  gui:show({ text_tab('General', 2) })
+  -- A point inside the body away from any control.
+  assert_true(gui:handle_mouse(1, 60, 50), 'empty-space click consumed')
+  assert_eq(0, rec.save, 'no save')
+  assert_eq(0, rec.discard, 'no discard')
+end)
+
+test('click outside the window returns false', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  gui:show({ text_tab('General', 2) })
+  assert_eq(false, gui:handle_mouse(1, 500, 500), 'click far outside not consumed')
+end)
+
+test('right/middle/wheel over window are blocked', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(3, 60, 50), 'right-down over window blocked')
+  assert_true(gui:handle_mouse(4, 60, 50), 'right-up over window blocked')
+  assert_true(gui:handle_mouse(10, 60, 50, 1), 'wheel over window blocked')
+  assert_eq(false, gui:handle_mouse(3, 500, 500), 'right-down outside not blocked')
+end)
+
+test('handle_mouse on closed window always returns false', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  assert_eq(false, gui:handle_mouse(1, 10, 10), 'closed: no consume')
+  assert_eq(false, gui:handle_mouse(2, 10, 10), 'closed: no consume on up')
+end)
+
+test('window drag moves all elements together and fires on_move once on release', function()
+  local gui, rec = make_gui({ pos = { x = 100, y = 100 }, images = images, size = { width = 320, height = 160 } })
+  gui:set_draggable(true)
+  gui:show({ text_tab('General', 2) })
+
+  -- Snapshot every chrome rect's top-left before the drag (the rects table is
+  -- mutated in place by layout, so copy the values, not the reference).
+  local names = { 'panel', 'header', 'body', 'save', 'discard', 'up', 'down' }
+  local before = {}
+  local rects = gui:_rects_for_test()
+  for _, n in ipairs(names) do
+    before[n] = { x = rects[n].x, y = rects[n].y }
+  end
+  local bg = gui:_bg_for_test()
+  local bg_before = { x = bg._x, y = bg._y }
+
+  -- Drag the header (row y=100..118 at anchor 100,100) by +30,+40.
+  assert_true(gui:handle_mouse(1, 110, 105), 'header left-down starts drag')
+  assert_true(gui:handle_mouse(0, 140, 145), 'move re-anchors')
+  assert_true(gui:handle_mouse(2, 140, 145), 'release ends drag')
+
+  assert_eq(1, #rec.moves, 'on_move fired exactly once')
+  assert_eq(130, rec.moves[1].x, 'new anchor x')
+  assert_eq(140, rec.moves[1].y, 'new anchor y')
+
+  -- Every element (incl. the scroll buttons and the images backdrop) shifted by the same delta.
+  local after = gui:_rects_for_test()
+  for _, n in ipairs(names) do
+    assert_eq(before[n].x + 30, after[n].x, n .. ' shifted x by +30')
+    assert_eq(before[n].y + 40, after[n].y, n .. ' shifted y by +40')
+  end
+  assert_eq(bg_before.x + 30, bg._x, 'backdrop shifted x by +30')
+  assert_eq(bg_before.y + 40, bg._y, 'backdrop shifted y by +40')
+end)
+
+test('window drag re-anchors so the window rect follows', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:set_draggable(true)
+  gui:show({ text_tab('General', 2) })
+  gui:handle_mouse(1, 10, 5)
+  gui:handle_mouse(0, 60, 55)
+  gui:handle_mouse(2, 60, 55)
+  -- Window now at (50,50)..(370,210). Old origin (10,10) is outside.
+  assert_eq(false, gui:handle_mouse(1, 10, 10), 'old region no longer over window')
+  assert_true(gui:handle_mouse(1, 60, 60), 'new region is over window')
+end)
+
+test('set_draggable(false) prevents drag', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 } })
+  gui:set_draggable(false)
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(1, 10, 5), 'header click still consumed')
+  -- A move event with no active drag, over the window, is consumed but does not re-anchor.
+  gui:handle_mouse(0, 60, 55)
+  gui:handle_mouse(2, 60, 55)
+  assert_eq(0, #rec.moves, 'on_move not fired when not draggable')
+  -- Window did not move: original origin still over window.
+  assert_true(gui:handle_mouse(1, 10, 10), 'origin still over window')
+end)
+
+test('an active drag keeps blocking even after the cursor leaves the window', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:set_draggable(true)
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(1, 10, 5), 'header left-down starts drag')
+  -- Move far outside the original window rect: still consumed because a drag is active.
+  assert_true(gui:handle_mouse(0, 5000, 5000), 'move far outside still consumed mid-drag')
+  assert_true(gui:handle_mouse(2, 5000, 5000), 'release outside still consumed')
+  assert_eq(1, #rec.moves, 'on_move fired once on release')
+end)
+
+test('text scrolling: slice respects visible_rows; buttons move the slice', function()
+  -- height 160: header(18)+footer(18) => body 124 => 6 rows. Provide 10 lines.
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  local tab = text_tab('General', 10)
+  gui:show({ tab })
+  local body = nil
+  -- Find the body element: it is the one whose text contains 'General line 1'
+  -- We expose it through handle_mouse-driven scrolling, asserting on the slice.
+  local function body_text()
+    return gui:_body_text_for_test()
+  end
+  assert_true(has_line(body_text(), 'General line 1'), 'first line shown')
+  assert_true(has_line(body_text(), 'General line 6'), 'sixth line shown')
+  assert_eq(false, has_line(body_text(), 'General line 7'), 'seventh line hidden initially')
+
+  gui:scroll(1)
+  assert_true(has_line(body_text(), 'General line 2'), 'after scroll, line 2 top')
+  assert_eq(false, has_line(body_text(), 'General line 1'), 'line 1 scrolled off')
+
+  -- clamp at bottom
+  gui:scroll(100)
+  assert_true(has_line(body_text(), 'General line 10'), 'last line visible at bottom')
+  gui:scroll(100)
+  assert_true(has_line(body_text(), 'General line 10'), 'still clamped at bottom')
+
+  -- clamp at top
+  gui:scroll(-100)
+  assert_true(has_line(body_text(), 'General line 1'), 'back to top after negative scroll')
+  gui:scroll(-100)
+  assert_true(has_line(body_text(), 'General line 1'), 'still clamped at top')
+end)
+
+test('scroll buttons visible when content overflows, inert/hidden when it fits', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 10) })
+  assert_eq(true, gui:_scroll_visible_for_test(), 'scroll shown when overflowing')
+
+  gui:set_tabs({ text_tab('General', 2) })
+  assert_eq(false, gui:_scroll_visible_for_test(), 'scroll hidden when content fits')
+end)
+
+test('down/up scroll-button clicks advance and reverse the slice', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 10) })
+  -- Scroll buttons are on the right edge: x in [320-18, 320). Down is the lower half.
+  local x = 320 - 9
+  -- body spans y in [18, 142]; up=top half, down=bottom half.
+  assert_true(gui:handle_mouse(1, x, 30), 'up button click consumed')
+  -- already at top, slice unchanged
+  assert_true(has_line(gui:_body_text_for_test(), 'General line 1'), 'still at top after up')
+  assert_true(gui:handle_mouse(1, x, 120), 'down button click consumed')
+  assert_true(has_line(gui:_body_text_for_test(), 'General line 2'), 'down advanced slice')
+  assert_eq(false, has_line(gui:_body_text_for_test(), 'General line 1'), 'line 1 gone after down')
+  assert_true(gui:handle_mouse(1, x, 30), 'up button click consumed')
+  assert_true(has_line(gui:_body_text_for_test(), 'General line 1'), 'up reversed slice')
+end)
+
+test('wheel over text body scrolls', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 10) })
+  assert_true(gui:handle_mouse(10, 60, 50, -1), 'wheel down consumed')
+  assert_true(has_line(gui:_body_text_for_test(), 'General line 2'), 'wheel down scrolled forward')
+  assert_eq(false, has_line(gui:_body_text_for_test(), 'General line 1'), 'line 1 gone on wheel down')
+  assert_true(gui:handle_mouse(10, 60, 50, 1), 'wheel up consumed')
+  assert_true(has_line(gui:_body_text_for_test(), 'General line 1'), 'wheel up scrolled back')
+end)
+
+test('one tab: no tab bar; tab content shown', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  gui:show({ text_tab('Only', 3) })
+  assert_eq(false, gui:_has_tab_bar_for_test(), 'no tab bar with one tab')
+  assert_true(contains(gui:_body_text_for_test(), 'Only line 1'), 'tab content shown')
+end)
+
+test('two tabs: tab bar shown with titles; click tab 2 selects + blocks', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
+  gui:show({ text_tab('Alpha', 3), text_tab('Beta', 3) })
+  assert_eq(true, gui:_has_tab_bar_for_test(), 'tab bar shown with 2 tabs')
+  local labels = gui:_tab_labels_for_test()
+  assert_eq('Alpha', labels[1]:text(), 'tab 1 title')
+  assert_eq('Beta', labels[2]:text(), 'tab 2 title')
+  assert_true(contains(gui:_body_text_for_test(), 'Alpha line 1'), 'tab 1 active initially')
+
+  -- Tab bar is the second row (y in [18,36)); tab 2 occupies the right portion.
+  local x2 = math.floor(320 / 2) + 5
+  assert_true(gui:handle_mouse(1, x2, 25), 'tab 2 click consumed')
+  assert_true(contains(gui:_body_text_for_test(), 'Beta line 1'), 'tab 2 now active')
+end)
+
+test('per-tab scroll offsets are independent', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
+  gui:show({ text_tab('Alpha', 20), text_tab('Beta', 20) })
+  -- height 200, with tab bar: header+tabbar+footer = 54 => body 146 => 8 rows
+  gui:scroll(3)
+  assert_eq(false, has_line(gui:_body_text_for_test(), 'Alpha line 1'), 'alpha scrolled')
+  gui:select_tab(2)
+  assert_true(has_line(gui:_body_text_for_test(), 'Beta line 1'), 'beta starts at top')
+  gui:select_tab(1)
+  assert_eq(false, has_line(gui:_body_text_for_test(), 'Alpha line 1'), 'alpha offset preserved')
+  assert_true(has_line(gui:_body_text_for_test(), 'Alpha line 4'), 'alpha back at offset 3')
+end)
+
+test('set_tabs with fewer tabs re-clamps the active index', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
+  gui:show({ text_tab('Alpha', 3), text_tab('Beta', 3), text_tab('Gamma', 3) })
+  gui:select_tab(3)
+  assert_true(contains(gui:_body_text_for_test(), 'Gamma line 1'), 'gamma active')
+  gui:set_tabs({ text_tab('Alpha', 3) })
+  assert_eq(false, gui:_has_tab_bar_for_test(), 'single tab => no bar')
+  assert_true(contains(gui:_body_text_for_test(), 'Alpha line 1'), 'active clamped to tab 1')
+end)
+
+test('visible_rows scales with height', function()
+  local function count_lines(s)
+    local n = 0
+    for _ in (s .. '\n'):gmatch('(.-)\n') do n = n + 1 end
+    return n
+  end
+  local small = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  small:show({ text_tab('General', 30) })
+  local n_small = count_lines(small:_body_text_for_test())
+
+  local big = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 320 } })
+  big:show({ text_tab('General', 30) })
+  local n_big = count_lines(big:_body_text_for_test())
+  assert_true(n_big > n_small, 'taller window shows more rows (' .. n_big .. ' > ' .. n_small .. ')')
+end)
+
+test('custom-tab seam: render called on show with viewport and libs', function()
+  local rec = { render = {}, mouse = {}, hidden = 0 }
+  local fake_images = {}
+  local rec_gui, _ = make_gui({ pos = { x = 0, y = 0 }, images = fake_images, size = { width = 320, height = 160 } })
+  local tab = {
+    title = 'Custom',
+    render = function(vp, libs)
+      rec.render[#rec.render + 1] = { vp = vp, libs = libs }
+    end,
+    on_mouse = function(rx, ry, mtype, delta)
+      rec.mouse[#rec.mouse + 1] = { rx = rx, ry = ry, mtype = mtype, delta = delta }
+    end,
+    hide = function() rec.hidden = rec.hidden + 1 end,
+  }
+  rec_gui:show({ tab })
+  assert_eq(1, #rec.render, 'render called once on show')
+  local vp = rec.render[1].vp
+  assert_true(vp.x ~= nil and vp.y ~= nil and vp.width ~= nil and vp.height ~= nil, 'vp has rect')
+  assert_eq(texts, rec.render[1].libs.texts, 'texts injected')
+  assert_eq(fake_images, rec.render[1].libs.images, 'images injected')
+
+  -- left-down inside the body viewport forwards body-relative coords and returns true
+  assert_true(rec_gui:handle_mouse(1, vp.x + 7, vp.y + 9, 0), 'body click consumed')
+  assert_eq(1, #rec.mouse, 'on_mouse forwarded')
+  assert_eq(7, rec.mouse[1].rx, 'body-relative x')
+  assert_eq(9, rec.mouse[1].ry, 'body-relative y')
+
+  -- chrome scroll buttons hidden for a custom tab
+  assert_eq(false, rec_gui:_scroll_visible_for_test(), 'no scroll chrome for custom tab')
+end)
+
+test('custom-tab seam: window drag re-calls render with moved viewport', function()
+  local renders = {}
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:set_draggable(true)
+  local tab = {
+    title = 'Custom',
+    render = function(vp) renders[#renders + 1] = { x = vp.x, y = vp.y } end,
+    on_mouse = function() end,
+    hide = function() end,
+  }
+  gui:show({ tab })
+  local first = renders[#renders]
+  gui:handle_mouse(1, 10, 5)
+  gui:handle_mouse(0, 40, 45)
+  gui:handle_mouse(2, 40, 45)
+  local last = renders[#renders]
+  assert_eq(first.x + 30, last.x, 'viewport x shifted by drag delta')
+  assert_eq(first.y + 40, last.y, 'viewport y shifted by drag delta')
+end)
+
+test('custom-tab seam: render re-called on set_tabs', function()
+  local renders = 0
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  local function custom(title)
+    return {
+      title = title,
+      render = function() renders = renders + 1 end,
+      on_mouse = function() end,
+      hide = function() end,
+    }
+  end
+  gui:show({ custom('A') })
+  local after_show = renders
+  assert_true(after_show >= 1, 'render called on show')
+  gui:set_tabs({ custom('B') })
+  assert_true(renders > after_show, 'render re-called on set_tabs')
+end)
+
+test('custom-tab seam: switching away calls the tab hide()', function()
+  local hidden = 0
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
+  local custom = {
+    title = 'Custom',
+    render = function() end,
+    on_mouse = function() end,
+    hide = function() hidden = hidden + 1 end,
+  }
+  gui:show({ custom, text_tab('Text', 3) })
+  gui:select_tab(2)
+  assert_eq(1, hidden, 'custom hide called on switch away')
+end)
+
+test('gui:hide calls active custom tab hide()', function()
+  local hidden = 0
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  local custom = {
+    title = 'Custom',
+    render = function() end,
+    on_mouse = function() end,
+    hide = function() hidden = hidden + 1 end,
+  }
+  gui:show({ custom })
+  gui:hide()
+  assert_eq(1, hidden, 'custom hide called on gui:hide')
+end)
+
+test('set_tabs updates the active tab content', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('Before', 3) })
+  assert_true(contains(gui:_body_text_for_test(), 'Before line 1'), 'initial content')
+  gui:set_tabs({ text_tab('After', 3) })
+  assert_true(contains(gui:_body_text_for_test(), 'After line 1'), 'content replaced')
+end)
+
+test('destroy destroys all chrome elements including tab labels', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
+  gui:show({ text_tab('Alpha', 3), text_tab('Beta', 3) })
+  local labels = gui:_tab_labels_for_test()
+  gui:destroy()
+  for _, label in ipairs(labels) do
+    assert_eq(true, label._destroyed, 'tab label destroyed')
+  end
+  -- handle_mouse on a destroyed/closed gui returns false
+  assert_eq(false, gui:handle_mouse(1, 10, 10), 'destroyed gui consumes nothing')
+end)
+
+test('select_tab clamps a too-low index up to tab 1', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
+  gui:show({ text_tab('Alpha', 3), text_tab('Beta', 3) })
+  gui:select_tab(2)
+  assert_true(contains(gui:_body_text_for_test(), 'Beta line 1'), 'beta active')
+  gui:select_tab(0)
+  assert_true(contains(gui:_body_text_for_test(), 'Alpha line 1'), 'index 0 clamps to tab 1')
+end)
+
+test('empty tabs list shows nothing and is safe to interact with', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({})
+  assert_eq('', gui:_body_text_for_test(), 'empty body with no tabs')
+  assert_eq(false, gui:_has_tab_bar_for_test(), 'no tab bar with no tabs')
+  assert_eq(false, gui:_scroll_visible_for_test(), 'no scroll chrome with no tabs')
+  gui:scroll(1) -- no active tab: must be a safe no-op
+  assert_true(gui:handle_mouse(1, 10, 10), 'click over empty window still blocked')
+end)
+
+test('scrolling a custom tab is an inert no-op with no scroll chrome', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, images = images, size = { width = 320, height = 160 } })
+  local last_vp
+  local tab = {
+    title = 'Custom',
+    render = function(vp) last_vp = vp end,
+    on_mouse = function() end,
+    hide = function() end,
+  }
+  gui:show({ tab })
+  gui:scroll(3) -- no-op, must not error
+  assert_eq(false, gui:_scroll_visible_for_test(), 'custom tab shows no scroll chrome')
+  -- wheel over the custom tab is forwarded (consumed) but does not turn on scroll chrome
+  assert_true(gui:handle_mouse(10, last_vp.x + 5, last_vp.y + 5, 1), 'wheel over custom tab consumed')
+  assert_eq(false, gui:_scroll_visible_for_test(), 'still no scroll chrome after wheel')
+end)
+
+test('set_pos while closed updates the anchor without showing', function()
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:set_pos(200, 250) -- closed: no relayout/show
+  assert_eq(false, gui:is_open(), 'still closed')
+  gui:show({ text_tab('General', 2) })
+  -- Window is now anchored at the set position: a click there is consumed, far away is not.
+  assert_true(gui:handle_mouse(1, 205, 255), 'click at new anchor consumed')
+  assert_eq(false, gui:handle_mouse(1, 10, 10), 'old origin no longer over window')
+end)
+
+test('a gui built with no callbacks survives clicks and drag without error', function()
+  local gui = config_gui.new({
+    texts = texts,
+    title = 'NoCb',
+    pos   = { x = 0, y = 0 },
+    size  = { width = 320, height = 160 },
+  })
+  gui:set_draggable(true)
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(1, 10, 152), 'save click consumed (no on_save)')
+  assert_true(gui:handle_mouse(1, 200, 152), 'discard click consumed (no on_discard)')
+  gui:handle_mouse(1, 10, 5)   -- start drag on header
+  gui:handle_mouse(0, 40, 45)  -- move
+  assert_true(gui:handle_mouse(2, 40, 45), 'release consumed (no on_move)')
+end)
+
+-- ----
+
+io.write(string.format('test_config_gui: %d passed, %d failed\n', pass, fail))
+if fail > 0 then
+  error(fail .. ' test(s) failed in test_config_gui.lua')
+end
