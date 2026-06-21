@@ -2,277 +2,121 @@
 
 ## Project Overview
 
-Lua addon scripts for Final Fantasy XI using the **Windower 4** framework. Each addon is a self-contained directory. Shared functionality lives in `lib/` at the repository root. Tests live in `tests/`.
+Lua addon scripts for Final Fantasy XI using the **Windower 4** framework. Each addon is a self-contained directory. Shared functionality lives in `lib/`. Tests live in `tests/`.
 
 ## Repository Structure
 
 ```
-lib/
-  settings/                 # Shared settings management library (required by all addons)
-    settings.lua
-    CLAUDE.md               # Settings library documentation and usage contract
-
+lib/settings/               # Shared settings library (required by all addons)
 <addon-name>/
   <addon-name>.lua          # Main entry point
-  README.md                 # Addon description + full command reference
+  README.md
   data/                     # All runtime-written and user-editable files
-    <CharacterName>/        # Per-character user settings (managed by settings library)
-      settings.json
-
+    <CharacterName>/        # Per-character settings (managed by settings library)
 tests/
-  lib/
-    settings/               # Tests for the shared settings library
-      run_tests.lua
-      test_*.lua
-  <addon-name>/             # Tests for each addon
-    run_tests.lua
-    mock_windower.lua
-    test_*.lua
+  lib/settings/             # Settings library tests
+  <addon-name>/             # Per-addon tests (run_tests.lua, mock_windower.lua, test_*.lua)
 ```
 
-### Data folder rules
-
-| What | Where |
-|------|-------|
-| Per-character user config (edited via `setup` GUI) | `data/{CharacterName}/` |
-| Runtime state written during gameplay | `data/` |
-| Anything a user or the addon can modify at runtime | `data/` (any subdirectory) |
-
-**Never** write runtime or user-editable files to the addon root.
+**Never** write runtime or user-editable files to the addon root — all go under `data/`.
 
 ## Shared Libraries
 
-### `lib/settings`
-
-All addons **must** use `lib/settings` for configuration management. Direct use of the Windower `config` library is not allowed in addon code.
-
-See [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md) for the full usage contract, API, and implementation details.
+All addons **must** use `lib/settings` for configuration management. Direct use of the Windower `config` library is not allowed. See [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md) for the full API.
 
 ## Windower 4 Conventions
 
-- **Lua version**: 5.1 (Windower bundles its own interpreter)
-- **Addon metadata** goes in the `_addon` table:
-  ```lua
-  _addon.name     = 'AddonName'
-  _addon.author   = 'Author'
-  _addon.version  = '1.0.0'
-  _addon.commands = {'addonname', 'an'}   -- full name + short alias
-  ```
-- Every addon **must** have a short alias command (e.g. `htb`, `gs`, `wb`). The alias is the second entry in `_addon.commands` and is the primary way users interact with the addon.
-- **Events** are registered with `windower.register_event`:
-  ```lua
-  windower.register_event('load', function() end)
-  windower.register_event('login', function() end)    -- fires on every character entry, incl. switches
-  windower.register_event('logout', function() end)
-  windower.register_event('unload', function() end)
-  windower.register_event('addon command', function(...) end)
-  ```
-- **Common APIs**: `windower`, `texts`, `packets`, `res` (resources), `files`
-- Character name is available via `windower.ffxi.get_player().name` — but `get_player()` returns **`nil`** when no character is logged in (POL / character-select). Never index it unguarded; see [Login lifecycle](#login-lifecycle).
+- **Lua version**: 5.1
+- **Addon metadata**: `_addon.name`, `.author`, `.version`, `.commands = {'addonname', 'an'}` — full name + short alias; alias is required and is the primary user interface
+- **Events**: register via `windower.register_event('load' | 'login' | 'logout' | 'unload' | 'addon command', fn)`
+- **Common APIs**: `windower`, `texts`, `packets`, `res`, `files`
+- `windower.ffxi.get_player()` returns **`nil`** before login — never index it unguarded
 
-## Login lifecycle
+## Login Lifecycle
 
-Addons are commonly loaded from `init.txt` **before** a character is logged in, and they stay loaded across logouts and character switches. Per-character settings depend on `windower.ffxi.get_player().name`, which is `nil` until login. Every addon **must** therefore:
+Addons load from `init.txt` before login and persist across character switches. Every addon **must**:
 
-- **Defer settings/UI initialization until logged in.** On `load`, only initialize if a character is present (`settings.logged_in()` — see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md)). Otherwise wait for `login`.
-- **(Re)initialize on `login`.** The `login` event fires on every character entry, including switching characters. Reload the current character's settings and refresh the UI so state is always scoped to the active character. `init` **must be idempotent** — reuse the existing UI element (no leaks) and clear any open setup session.
-- **Clean up on `logout`.** Hide the UI and abandon any open setup session (`settings.discard()`), so a previous character's state is never shown or written under another character.
+- **Defer on `load`** — only initialize if `settings.logged_in()`; otherwise wait for `login`
+- **Re-initialize on `login`** — reload settings and refresh UI; `init()` must be idempotent (reuse UI element, clear any open setup session)
+- **Clean up on `logout`** — hide UI, call `settings.discard()`, abandon staging
 
-```lua
-local function init()                 -- idempotent: safe to call on load and every login
-  if settings.in_setup() then settings.discard(); staged = nil end
-  live = settings.load(windower.addon_path, defaults)
-  if not element then element = texts.new('', text_settings) end
-  refresh_display()
-  element:show()
-end
-
-windower.register_event('load',   function() if settings.logged_in() then init() end end)
-windower.register_event('login',  function() init() end)
-windower.register_event('logout', function() on_logout() end)   -- discard staging; hide UI
-```
-
-Failing to do this causes two bugs: an opaque nil-index crash when loaded before login, and cross-character settings clobber on character switch. `echo` is the reference implementation; its `tests/echo/test_lifecycle.lua` is the template lifecycle test set (see Testing).
+Failing these causes a nil-index crash on load and cross-character settings clobber on switch. `echo` is the reference implementation; `tests/echo/test_lifecycle.lua` is the template lifecycle test.
 
 ## Required Commands
 
-Every addon must implement these sub-commands (dispatched from `addon command`):
+Every addon must implement:
 
-| Sub-command  | Behavior |
-|--------------|----------|
-| `setup`      | Opens the in-game configuration GUI |
-| `exit`       | Saves staged changes and closes the GUI |
-| `exit -d`    | Discards staged changes and closes the GUI |
-| `help`       | Prints available commands to the chat log |
+| Sub-command | Aliases | Behavior |
+|-------------|---------|----------|
+| `config`    | `c`     | Opens the configuration GUI |
+| `save`      | `s`     | Saves staged changes and closes the GUI |
+| `discard`   | `d`     | Discards staged changes and closes the GUI |
+| `help`      |         | Prints available commands to chat |
 
-Dispatch pattern:
+Unknown commands fall through to `print_help()`.
 
-```lua
-local commands = {
-  exit  = function(...) gui.close(...) end,
-  help  = function() print_help() end,
-  setup = function() gui.open() end,
-}
+## Configuration GUI (`config`)
 
-windower.register_event('addon command', function(cmd, ...)
-  local handler = commands[cmd]
-  if handler then
-    handler(...)
-  else
-    print_help()
-  end
-end)
-```
-
-## Configuration GUI (`setup`)
-
-- Use Windower's `texts` library or an imgui-style overlay for the `setup` GUI
-- GUI open/closed state is ephemeral — do not persist it
-- All reads and writes go through `lib/settings` — never access `data/` directly in addon code
-
-### Staged settings
-
-The GUI operates on a **staging copy** of the current settings. Changes are held in memory and are **not** written to disk until the user exits setup. The settings library manages this staging lifecycle — see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md).
-
-- `//an exit` — commits staged changes to `data/{CharacterName}/settings.xml`
-- `//an exit -d` — drops the staging copy; settings unchanged on disk
-
-### GUI actions must call testable functions
-
-GUI callbacks must never modify state directly. Every action must delegate to a named, testable function.
-
-```lua
--- GOOD: callback delegates to a testable function
-local function change_pos(x, y)
-  settings.stage_set('pos_x', x)
-  settings.stage_set('pos_y', y)
-  element:pos(x, y)
-end
-
-on_drag(function(x, y) change_pos(x, y) end)
-```
-
-### Repositionable UI during setup
-
-Any addon that displays a persistent UI element **must** make that element draggable while setup is open. Dragging must be disabled when setup closes. Position changes update staged settings via `change_pos` and are only persisted on save-exit.
+- Use `texts` library or imgui-style overlay; GUI open/closed state is ephemeral — never persist it
+- All reads/writes go through `lib/settings`; never access `data/` directly
+- GUI operates on a **staging copy**; changes are not written until `save` commits them (`discard` drops them)
+- GUI callbacks must delegate to named, testable functions — never modify state inline
+- Any persistent UI element **must** be draggable during config; dragging disabled on close; position written via `settings.stage_set`
 
 ## Code Style
 
-### File layout
+File layout order: `require` → `_addon` metadata → state → forward declarations → public functions (alpha) → private functions (alpha) → event registrations.
 
-Mirror C# conventions adapted to Lua. Each file is organized in this order:
-
-1. **`require` statements** — first thing in the file, before anything else
-2. **`_addon` metadata** — name, author, version, commands
-3. **State** — all `local` variables that hold module-level state
-4. **Forward declarations** — `local` stubs for private functions called by public functions defined above them (required because Lua is parsed top-to-bottom)
-5. **Public functions** — functions exposed via the command dispatch table, returned module table, or GUI callbacks; sorted alphabetically within this block
-6. **Private functions** — internal helpers; sorted alphabetically within this block
-7. **Event registrations** — `windower.register_event(...)` calls at the bottom
-
-### Formatting rules
-
-- 2-space indentation
-- Snake_case for variables and functions
-- No semicolons
-- Align `=` signs in multi-line table/variable declarations when it improves readability
+- 2-space indentation, snake_case, no semicolons
+- Align `=` in multi-line table/variable declarations when it aids readability
 - Avoid globals; localize frequently used upvalues
-- CRLF (`\r\n`) line endings for source files — enforced by `.gitattributes`
+- CRLF (`\r\n`) line endings — enforced by `.gitattributes`
 
 ## Per-Addon README
 
-Every addon directory must contain a `README.md` that includes:
-
-1. **What the addon does** — one short paragraph
-2. **Installation** — how to drop it into Windower's addon folder and load it
-3. **Commands** — a table of every in-game command with its alias and description:
-
-   ```markdown
-   ## Commands
-
-   All commands use the alias `an` (or the full name `addonname`).
-
-   | Command         | Description                                 |
-   |-----------------|---------------------------------------------|
-   | `//an setup`    | Opens the configuration GUI                 |
-   | `//an exit`     | Saves changes and closes the GUI            |
-   | `//an exit -d`  | Discards changes and closes the GUI         |
-   | `//an help`     | Prints this command list in chat            |
-   ```
-
-4. **Configuration** — description of settings stored in `data/{CharacterName}/settings.json`
-
-Keep the per-addon README current whenever commands are added or removed.
+Every `README.md` must cover: what the addon does, installation, a commands table (all commands with alias and description), configuration (settings in `data/{CharacterName}/settings.json`), and a libraries table (Windower/shared libs with purpose). Keep it current when commands, libraries, or config change.
 
 ## Testing
-
-Tests live in `tests/` at the repository root, mirroring the source tree.
-
-### Running tests
 
 ```bash
 lua tests/<addon-name>/run_tests.lua
 lua tests/lib/settings/run_tests.lua
 ```
 
-### Test harness conventions
+Harness conventions:
+- `mock_windower.lua` — stubs for `windower`, `texts`, and other globals
+- `test_*.lua` — one file per logical area; `run_tests.lua` discovers and runs them all, exits non-zero on failure
+- No live `data/` writes; no game client dependency; GUI logic tested by calling functions directly
+- Staged-settings: `discard` must leave live settings unchanged; `save` must persist them
 
-- `mock_windower.lua` — stubs for `windower`, `texts`, and other Windower globals
-- `test_*.lua` — individual test files, one per logical area
-- `run_tests.lua` — discovers and runs all `test_*.lua` files; exits non-zero on failure
-- Tests must not write to the live `data/` directory; use in-memory stubs or a temp path
-- Tests must not depend on a running game client or Windower instance
-- GUI logic is tested by calling underlying functions directly — never by simulating GUI events
-- Staged-settings behavior must be covered: `exit -d` must leave live settings unchanged; `exit` must persist them
+**Required lifecycle tests** (every addon): make `windower.ffxi._player` settable and assert:
+- Load before login defers without crashing
+- Login initializes settings and shows UI
+- Character switch reloads new character's settings; no clobber of prior character's file
+- Logout hides UI, discards staging; safe before init and outside setup
 
-### Required login-lifecycle tests
-
-Every addon's test suite **must** cover the [login lifecycle](#login-lifecycle). Make the mocked logged-in player settable (e.g. a `windower.ffxi._player` field that `get_player` returns; tests set it to `nil`, `{name='Alpha'}`, etc., and restore the default) and assert:
-
-- **Loaded before login defers** — the `load` handler does not initialize and does not crash when `get_player()` is `nil`.
-- **Login initializes** — the `login` handler loads the current character's settings and shows the UI.
-- **Character switch reloads, no clobber** — after switching characters, the new character's settings load (not the previous one's); writes land in the new character's file; the previous character's file is left intact.
-- **Logout cleans up** — the UI is hidden and any open setup session is abandoned; logout is safe before init (no element) and when not in setup.
-
-`tests/echo/test_lifecycle.lua` is the reference template — copy its structure for new addons.
-
-### In-game reload (manual testing)
-
-```
-//lua r <addon-name>
-```
+Reference: `tests/echo/test_lifecycle.lua`. In-game reload: `//lua r <addon-name>`
 
 ## Source Control
 
-Source is hosted on **GitHub** (`khowe085/ffxi-addons`); the default branch is `main`. Use the `gh` CLI for branches, pushes, and pull requests. All work lands on `main` through a pull request — never commit directly to `main`.
+GitHub (`khowe085/ffxi-addons`), default branch `main`. Use `gh` CLI. All work lands via PR — never commit directly to `main`.
 
 ## Development Workflow
 
-Every task follows this agent pipeline:
+> **MANDATORY — NO EXCEPTIONS.** This workflow applies to every change regardless of size. Do not edit any source file, test, or documentation until step 1 is complete and the user has approved the plan. Skipping or shortcutting any step wastes the user's tokens and is forbidden.
 
-### Planning
-
-Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root, and the feature branch `feat/<plan-name>` is created off `main` at the same time. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units. All work for the plan is committed to its feature branch.
-
-### Stages
+Before implementation: write plan to `.planning/<plan-name>.md` and create `feat/<plan-name>` off `main` (`git pull origin main` first). The plan's **Tasks** section defines parallel work units.
 
 | # | Who | Action |
 |---|-----|--------|
-| 1 | **Plan agent** | Writes plan to `.planning/<plan-name>.md` **and creates the feature branch `feat/<plan-name>` off `main`**; plan must be approved before proceeding. |
-| 2 | **Orchestrator** | Decomposes the approved plan into tasks; adds or updates the **Tasks** section in the plan file. |
-| 3 | **lua-dev** (one per task, in parallel) | Each task gets its own isolated git worktree; implements the feature and writes all relevant tests. |
-| 4 | **lua-reviewer** (per worktree) | Reviews the implementation for correctness, style, and test coverage. |
-| 5 | **lua-dev** (per worktree) | Resolves every issue lua-reviewer raised. **Must complete before moving forward.** |
-| 6 | **lua-QA** | Runs the full test suite across all worktrees. |
-| 7 | — | If lua-QA finds failures, repeat from step 3. |
-| 8 | — | Merge the approved task work onto the feature branch `feat/<plan-name>`. |
-| 9 | **docs agent** | Writes or updates `README.md` for each modified addon based on the approved implementation. |
-| 10 | **Orchestrator** | Commits the completed work to the feature branch, pushes it, and opens a PR against `main`. The PR description **is** the release notes for the change (a user-facing summary usable verbatim as a changelog entry). |
+| 1 | **Plan agent** | Writes `.planning/<plan-name>.md` and creates `feat/<plan-name>`; **STOP and wait for user approval** |
+| 2 | **Orchestrator** | Decomposes into tasks; updates **Tasks** section in plan |
+| 3 | **lua-dev** (per task, parallel) | Isolated worktree; implements feature + tests |
+| 4 | **lua-reviewer** (per worktree) | Reviews for correctness, style, test coverage |
+| 5 | **lua-dev** (per worktree) | Resolves all reviewer issues before proceeding |
+| 6 | **lua-QA** | Runs full test suite; failures loop back to step 3 |
+| 7 | — | Merge task work onto `feat/<plan-name>`; remove worktree (`git worktree remove`) |
+| 8 | **docs agent** | Updates `README.md` for each modified addon |
+| 9 | **Orchestrator** | Commits, pushes, opens PR; PR description = release notes |
 
-### Rules
-
-- Plans live in `.planning/` at the repository root; each plan has a matching `feat/<plan-name>` branch created when the plan is written, and all of its work is committed there.
-- The **Tasks** section of the plan defines parallel work units; each task maps to exactly one lua-dev worktree.
-- lua-dev **must not** move past the review stage until lua-reviewer raises zero blocking issues.
-- lua-QA is the final gate — work is not merged onto the feature branch, and no PR is opened, while tests are failing.
-- The PR against `main` is opened only after lua-QA approves, and its description contains the release notes for the change.
+**Rules**: applies to all work (features and bugfixes alike); no shortcuts; no inline edits; worktrees removed after merge; PR opened only after lua-QA approves.

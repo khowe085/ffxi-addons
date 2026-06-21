@@ -54,7 +54,7 @@ Never access `data/` directly in addon code. Never use the Windower `config` lib
 
 ## Required sub-commands (every addon)
 
-`setup`, `exit`, `exit -d`, `help` — dispatched from the `addon command` event via a commands table.
+`config` (alias `c`), `save` (alias `s`), `discard` (alias `d`), `help` — dispatched from the `addon command` event via a commands table.
 
 ## Code style
 
@@ -72,7 +72,7 @@ Test harness stubs: `mock_windower.lua` provides `windower.register_event`, `win
 Tests must:
 - Not write to the live `data/` directory
 - Not depend on a running game client
-- Cover staged-settings lifecycle: `exit -d` leaves live settings unchanged; `exit` persists them
+- Cover staged-settings lifecycle: `discard` leaves live settings unchanged; `save` persists them
 - Test GUI logic by calling underlying functions directly, never by simulating GUI events
 
 ## Lua 5.1 constraints to remember

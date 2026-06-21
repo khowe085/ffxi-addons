@@ -21,15 +21,15 @@ For each addon being checked, read its files and verify every rule below. Report
 - [ ] `_addon.commands` has exactly two entries (full name + short alias)
 
 **Required commands**
-- [ ] `setup` command is present in the dispatch table
-- [ ] `exit` command is present and routes to a save function
-- [ ] `exit -d` (the `-d` flag) is handled and routes to a discard function
+- [ ] `config` command (and alias `c`) is present in the dispatch table
+- [ ] `save` command (and alias `s`) is present and routes to a commit/save function
+- [ ] `discard` command (and alias `d`) is present and routes to a discard function
 - [ ] `help` command is present in the dispatch table
 
 **Settings library usage**
 - [ ] Main .lua file requires `lib/settings` (or a path resolving to it)
 - [ ] Main .lua file does NOT directly `require('config')` or call `config.load` / `config.save`
-- [ ] Staged settings pattern is used: a separate staged table is populated on `setup_open` and nil'd on exit
+- [ ] Staged settings pattern is used: a separate staged table is populated on `setup_open` and nil'd on save/discard
 
 **Data folder rules**
 - [ ] No file write operations target the addon root or `lib/` — all writes reference a path under `data/`
@@ -46,7 +46,7 @@ For each addon being checked, read its files and verify every rule below. Report
 
 **Per-addon README**
 - [ ] README contains a Commands section with a markdown table
-- [ ] Commands table includes `setup`, `exit`, `exit -d`, and `help` rows
+- [ ] Commands table includes `config`, `save`, `discard`, and `help` rows
 - [ ] Commands table uses the correct alias prefix
 - [ ] README contains a Configuration section
 
