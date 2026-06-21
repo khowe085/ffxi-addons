@@ -40,12 +40,12 @@ style drift. Do not invent issues. Do not comment on code that is fine.
 7. `windower.register_event` calls
 
 ### Required commands
-Every addon must implement `setup`, `exit`, `exit -d`, and `help` via a dispatch table.
-`exit -d` routes to the discard path; `exit` (no flag) routes to save/commit.
+Every addon must implement `config` (alias `c`), `save` (alias `s`), `discard` (alias `d`), and `help` via a dispatch table.
+`discard` routes to the discard path; `save` routes to commit.
 
 ### GUI rules
 - No state mutations inside GUI callbacks — callbacks must call a named function
-- UI elements must be draggable while setup is open; dragging disabled on close
+- UI elements must be draggable while config is open; dragging disabled on close
 - `change_pos` (or equivalent) must call `stage_set`, not write to the staged table directly
 
 ### Code style
@@ -56,8 +56,8 @@ Every addon must implement `setup`, `exit`, `exit -d`, and `help` via a dispatch
 - Comments only when the WHY is non-obvious; no what-comments, no task-reference comments
 
 ### Tests
-- `exit -d` test must assert live settings are unchanged after discard
-- `exit` test must assert staged values appear in the live table afterward
+- `discard` test must assert live settings are unchanged after discard
+- `save` test must assert staged values appear in the live table afterward
 - No writes to the live `data/` directory
 - GUI logic tested by calling underlying functions, not by simulating GUI events
 - `mock_windower.lua` must stub: `windower.register_event`, `windower.ffxi.get_player()`,

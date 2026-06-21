@@ -34,7 +34,7 @@ tests/
 
 | What | Where |
 |------|-------|
-| Per-character user config (edited via `setup` GUI) | `data/{CharacterName}/` |
+| Per-character user config (edited via `config` GUI) | `data/{CharacterName}/` |
 | Runtime state written during gameplay | `data/` |
 | Anything a user or the addon can modify at runtime | `data/` (any subdirectory) |
 
@@ -98,20 +98,24 @@ Failing to do this causes two bugs: an opaque nil-index crash when loaded before
 
 Every addon must implement these sub-commands (dispatched from `addon command`):
 
-| Sub-command  | Behavior |
-|--------------|----------|
-| `setup`      | Opens the in-game configuration GUI |
-| `exit`       | Saves staged changes and closes the GUI |
-| `exit -d`    | Discards staged changes and closes the GUI |
-| `help`       | Prints available commands to the chat log |
+| Sub-command | Aliases | Behavior |
+|-------------|---------|----------|
+| `config`    | `c`     | Opens the in-game configuration GUI |
+| `save`      | `s`     | Saves staged changes and closes the GUI |
+| `discard`   | `d`     | Discards staged changes and closes the GUI |
+| `help`      |         | Prints available commands to the chat log |
 
 Dispatch pattern:
 
 ```lua
 local commands = {
-  exit  = function(...) gui.close(...) end,
-  help  = function() print_help() end,
-  setup = function() gui.open() end,
+  c       = function() gui.open() end,
+  config  = function() gui.open() end,
+  d       = function() gui.close_discard() end,
+  discard = function() gui.close_discard() end,
+  help    = function() print_help() end,
+  s       = function() gui.close_save() end,
+  save    = function() gui.close_save() end,
 }
 
 windower.register_event('addon command', function(cmd, ...)
@@ -124,18 +128,18 @@ windower.register_event('addon command', function(cmd, ...)
 end)
 ```
 
-## Configuration GUI (`setup`)
+## Configuration GUI (`config`)
 
-- Use Windower's `texts` library or an imgui-style overlay for the `setup` GUI
+- Use Windower's `texts` library or an imgui-style overlay for the `config` GUI
 - GUI open/closed state is ephemeral — do not persist it
 - All reads and writes go through `lib/settings` — never access `data/` directly in addon code
 
 ### Staged settings
 
-The GUI operates on a **staging copy** of the current settings. Changes are held in memory and are **not** written to disk until the user exits setup. The settings library manages this staging lifecycle — see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md).
+The GUI operates on a **staging copy** of the current settings. Changes are held in memory and are **not** written to disk until the user exits config. The settings library manages this staging lifecycle — see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md).
 
-- `//an exit` — commits staged changes to `data/{CharacterName}/settings.xml`
-- `//an exit -d` — drops the staging copy; settings unchanged on disk
+- `//an save` — commits staged changes to `data/{CharacterName}/settings.json`
+- `//an discard` — drops the staging copy; settings unchanged on disk
 
 ### GUI actions must call testable functions
 
@@ -152,9 +156,9 @@ end
 on_drag(function(x, y) change_pos(x, y) end)
 ```
 
-### Repositionable UI during setup
+### Repositionable UI during config
 
-Any addon that displays a persistent UI element **must** make that element draggable while setup is open. Dragging must be disabled when setup closes. Position changes update staged settings via `change_pos` and are only persisted on save-exit.
+Any addon that displays a persistent UI element **must** make that element draggable while config is open. Dragging must be disabled when config closes. Position changes update staged settings via `change_pos` and are only persisted on save.
 
 ## Code Style
 
@@ -192,12 +196,12 @@ Every addon directory must contain a `README.md` that includes:
 
    All commands use the alias `an` (or the full name `addonname`).
 
-   | Command         | Description                                 |
-   |-----------------|---------------------------------------------|
-   | `//an setup`    | Opens the configuration GUI                 |
-   | `//an exit`     | Saves changes and closes the GUI            |
-   | `//an exit -d`  | Discards changes and closes the GUI         |
-   | `//an help`     | Prints this command list in chat            |
+   | Command                    | Description                                 |
+   |----------------------------|---------------------------------------------|
+   | `//an config` / `//an c`   | Opens the configuration GUI                 |
+   | `//an save` / `//an s`     | Saves changes and closes the GUI            |
+   | `//an discard` / `//an d`  | Discards changes and closes the GUI         |
+   | `//an help`                | Prints this command list in chat            |
    ```
 
 4. **Configuration** — description of settings stored in `data/{CharacterName}/settings.json`
@@ -223,7 +227,7 @@ lua tests/lib/settings/run_tests.lua
 - Tests must not write to the live `data/` directory; use in-memory stubs or a temp path
 - Tests must not depend on a running game client or Windower instance
 - GUI logic is tested by calling underlying functions directly — never by simulating GUI events
-- Staged-settings behavior must be covered: `exit -d` must leave live settings unchanged; `exit` must persist them
+- Staged-settings behavior must be covered: `discard` must leave live settings unchanged; `save` must persist them
 
 ### Required login-lifecycle tests
 
@@ -232,7 +236,7 @@ Every addon's test suite **must** cover the [login lifecycle](#login-lifecycle).
 - **Loaded before login defers** — the `load` handler does not initialize and does not crash when `get_player()` is `nil`.
 - **Login initializes** — the `login` handler loads the current character's settings and shows the UI.
 - **Character switch reloads, no clobber** — after switching characters, the new character's settings load (not the previous one's); writes land in the new character's file; the previous character's file is left intact.
-- **Logout cleans up** — the UI is hidden and any open setup session is abandoned; logout is safe before init (no element) and when not in setup.
+- **Logout cleans up** — the UI is hidden and any open setup session is abandoned; logout is safe before init (no element) and when not in config.
 
 `tests/echo/test_lifecycle.lua` is the reference template — copy its structure for new addons.
 
