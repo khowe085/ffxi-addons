@@ -157,6 +157,89 @@ test('init reuses the same element across re-init (no leak)', function()
   assert(e.get_element() == first, 're-init must reuse the existing element, not recreate it')
 end)
 
+test('login creates the config window hidden and non-draggable', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  e.init()
+  assert(e.get_gui() ~= nil, 'gui created on init')
+  assert_eq(false, e.get_gui():is_open(), 'config window starts hidden')
+end)
+
+test('init reuses the same gui across re-init (no leak)', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  e.init()
+  local first = e.get_gui()
+  e.init()
+  assert(e.get_gui() == first, 're-init must reuse the existing gui, not recreate it')
+end)
+
+test('re-init during an open config session clears staging and hides the window', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  e.init()
+  e.setup_open()
+  assert_eq(true, e.get_gui():is_open(), 'window open after config')
+  assert_eq(true, settings.in_setup(), 'in setup after config')
+  e.init()
+  assert_eq(false, e.get_gui():is_open(), 're-init hides the config window')
+  assert_eq(false, settings.in_setup(), 're-init clears stale staging')
+  assert_eq(nil,   e.get_staged(),       're-init clears staged table')
+end)
+
+test('logout hides the config window and abandons an open config session', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  e.init()
+  e.setup_open()
+  assert_eq(true, e.get_gui():is_open(), 'window open before logout')
+  e.on_logout()
+  assert_eq(false, e.get_gui():is_open(), 'config window hidden on logout')
+  assert_eq(false, settings.in_setup(),   'setup session abandoned on logout')
+end)
+
+test('logout before init is safe when no gui exists', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  local ok = pcall(function() e.on_logout() end)
+  assert_eq(true, ok, 'logout before init must not error')
+  assert_eq(nil, e.get_gui(), 'gui stays nil before init')
+end)
+
+test('on_mouse before init is safe (no gui, no setup)', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  local ok, result = pcall(function() return e.on_mouse(1, 10, 10) end)
+  assert_eq(true,  ok,     'on_mouse before init must not error')
+  assert_eq(false, result, 'on_mouse before init returns false')
+end)
+
+test('unload destroys the overlay and the config window', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  local e = load_addon()
+  e.init()
+  local el  = e.get_element()
+  local g   = e.get_gui()
+  windower._events['unload']()
+  assert_eq(true,  el._destroyed,        'overlay destroyed on unload')
+  assert_eq(false, g:is_open(),          'gui closed on unload')
+end)
+
+test('unload before init is safe when nothing was created', function()
+  vfs = {}
+  windower.ffxi._player = { name = 'TestChar' }
+  load_addon()
+  local ok = pcall(function() windower._events['unload']() end)
+  assert_eq(true, ok, 'unload before init must not error')
+end)
+
 -- ----
 
 windower.ffxi._player = { name = 'TestChar' }

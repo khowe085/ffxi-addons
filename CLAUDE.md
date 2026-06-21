@@ -57,7 +57,22 @@ Unknown commands fall through to `print_help()`.
 
 ## Configuration GUI (`config`)
 
-- Use `texts` library or imgui-style overlay; GUI open/closed state is ephemeral — never persist it
+Every addon **must** build its config GUI on the shared `lib/settings/config_gui` helper, which
+renders the window **chrome** (header, optional tab bar, footer Save/Discard buttons, right-side
+scroll buttons, image backdrop, dragging, and click-blocking). The addon supplies only the **body**
+content. `echo` is the reference implementation; see [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md)
+for the `config_gui` API.
+
+- **Header** shows the addon name; **footer** has **Save** / **Discard** buttons wired to the
+  `save` / `discard` handlers — closing via command must behave exactly like clicking the button
+- **Body is a list of tabs** (always a list, even for one tab; the tab bar is hidden when there is
+  only one). Each tab is either a **text tab** (`{ title, lines }`, scrolled by the helper) or a
+  **custom tab** (`{ title, render, on_mouse, hide }`) that draws an interactive body into a
+  provided viewport — supports image-rich, clickable GUIs
+- The addon defines the **window size**; the body **scrolls** within it (up/down buttons on the right)
+- `config` while the window is open is a **no-op**
+- **Mouse events over the open window must be consumed** so clicks never pass through to the game
+- GUI open/closed state is ephemeral — never persist it
 - All reads/writes go through `lib/settings`; never access `data/` directly
 - GUI operates on a **staging copy**; changes are not written until `save` commits them (`discard` drops them)
 - GUI callbacks must delegate to named, testable functions — never modify state inline
