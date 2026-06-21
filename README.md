@@ -20,6 +20,7 @@ tests/
 
 | Addon | Description |
 |-------|-------------|
+| [echo](echo/) | Displays a user-provided string in a persistent, draggable on-screen text overlay; alias `ec`. Reference implementation of the shared config GUI. |
 
 <!-- Add a row here whenever a new addon is created -->
 
@@ -28,6 +29,10 @@ tests/
 ### `lib/settings`
 
 Handles per-character configuration (load, stage, save, discard) for all addons. See [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md) for the API.
+
+### `lib/settings/config_gui`
+
+Reusable configuration-window chrome (header, tabs, scrollable body, Save/Discard footer, dragging, click-blocking) so each addon only supplies its body content. See [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md) for the API.
 
 ## Installation
 
@@ -39,12 +44,12 @@ Handles per-character configuration (load, stage, save, discard) for all addons.
    ```
 4. Open the configuration GUI:
    ```
-   //<alias> setup
+   //<alias> config
    ```
-5. When finished configuring, save with `exit` or discard with `exit -d`:
+5. When finished configuring, save or discard your changes:
    ```
-   //<alias> exit
-   //<alias> exit -d
+   //<alias> save
+   //<alias> discard
    ```
 
 ## Development

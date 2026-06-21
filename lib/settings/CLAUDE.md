@@ -98,6 +98,57 @@ windower.register_event('load', function()
 end)
 ```
 
+## Configuration GUI helper (`config_gui`)
+
+`lib/settings/config_gui.lua` is a sibling module that renders the reusable configuration-window
+**chrome** so addons only provide body content. It holds **no addon state**, registers **no
+Windower events**, and takes the `texts` (and optional `images`) libraries by **dependency
+injection** — mirroring the `io_provider` swap in `settings.lua`. `settings.lua` itself stays pure
+data; all UI lives here.
+
+```lua
+local config_gui = require('lib.settings.config_gui')
+
+local gui = config_gui.new({
+  texts      = texts,          -- required (injected for testability)
+  images     = images,         -- optional; draws a solid window backdrop and is passed to custom tabs
+  title      = _addon.name,    -- header text
+  on_save    = save_fn,        -- Save button / `save` command
+  on_discard = discard_fn,     -- Discard button / `discard` command
+  on_move    = function(x, y) end, -- window drag-release → stage the new anchor
+  pos        = { x = 0, y = 0 },        -- initial window anchor (load from settings)
+  size       = { width = 320, height = 160 }, -- addon-defined window size (px)
+})
+```
+
+### Body tabs
+
+`gui:show(tabs)` / `gui:set_tabs(tabs)` take a **list of tabs** (always a list, even for one — the
+tab bar is hidden when there is a single tab). Each tab is either:
+
+- **text tab** — `{ title = 'General', lines = { 'line 1', ... } }`. The helper renders and scrolls it.
+- **custom tab** — `{ title = 'Magic', render = fn, on_mouse = fn, hide = fn }`. The helper calls
+  `render(vp, { texts, images })` with the body viewport rect (re-called on drag and `set_tabs`),
+  forwards body-relative mouse events to `on_mouse(rel_x, rel_y, mtype, delta)`, and calls `hide()`
+  on tab switch / `gui:hide()`. Use this for interactive, image-rich bodies (icon grids, etc.).
+
+### Methods
+
+`gui:select_tab(i)` · `gui:scroll(delta)` · `gui:show(tabs)` / `gui:hide()` / `gui:is_open()` ·
+`gui:set_tabs(tabs)` · `gui:set_pos(x, y)` · `gui:set_draggable(bool)` ·
+`gui:handle_mouse(mtype, x, y, delta)` (delegate the addon's `mouse` event here; returns `true`
+when the event is over the window so the addon blocks it from the game) · `gui:destroy()`
+(on `unload`).
+
+### Behavior contract
+
+- The window is draggable by its header during config; the addon persists the anchor via `on_move`
+  → `settings.stage_set`. Disable dragging on close.
+- Every mouse event over the open window is consumed (returns `true`) so clicks never reach the game.
+- Scrolling (text tabs) uses the right-side `▲`/`▼` buttons; they are hidden when content fits.
+- Chrome hit-testing uses rects computed from the layout (not `texts:hover`, whose extents are
+  glyph-based), so in-game behavior matches the tests.
+
 ## Implementation rules
 
 - The library must not depend on any addon-specific state
@@ -105,6 +156,7 @@ end)
 - `stage_set` must be a plain function call (not a method) so it is easy to stub in tests
 - `commit` must be atomic with respect to the staged table — it must not partially write on error
 - The library must not register any Windower events itself; all event wiring is done by the addon
+- `config_gui` follows the same rules: no addon state, no event registration, `texts`/`images` injected
 
 ## Testing
 
