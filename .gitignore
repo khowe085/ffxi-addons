@@ -3,6 +3,7 @@
 
 # Claude memory (personal, generated at runtime)
 .claude/memory/
+.claude/worktrees/
 
 # Windower addon runtime data
 data/
