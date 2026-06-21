@@ -58,14 +58,6 @@ function echo.dispatch(cmd, ...)
   end
 end
 
-function echo.gui_close(flag)
-  if flag == '-d' then
-    echo.setup_close_discard()
-  else
-    echo.setup_close_save()
-  end
-end
-
 function echo.init()
   if settings_lib.in_setup() then
     settings_lib.discard()
@@ -138,9 +130,9 @@ function echo.print_help()
   windower.add_to_chat(207, 'Echo commands:')
   windower.add_to_chat(207, '//ec set <text>   - Set and display the text')
   windower.add_to_chat(207, '//ec clear        - Clear the displayed text')
-  windower.add_to_chat(207, '//ec setup        - Open the positioning GUI (drag to reposition)')
-  windower.add_to_chat(207, '//ec exit         - Save position changes and close setup')
-  windower.add_to_chat(207, '//ec exit -d      - Discard position changes and close setup')
+  windower.add_to_chat(207, '//ec config       - Open the positioning GUI (drag to reposition)')
+  windower.add_to_chat(207, '//ec save         - Save position changes and close config')
+  windower.add_to_chat(207, '//ec discard      - Discard position changes and close config')
   windower.add_to_chat(207, '//ec help         - Show this command list')
 end
 
@@ -170,17 +162,21 @@ print_help      = echo.print_help
 refresh_display = echo.refresh_display
 
 commands = {
-  clear = function() echo.cmd_clear() end,
-  exit  = function(...) echo.gui_close(...) end,
-  help  = function() echo.print_help() end,
-  set   = function(...)
+  c       = function() echo.setup_open() end,
+  clear   = function() echo.cmd_clear() end,
+  config  = function() echo.setup_open() end,
+  d       = function() echo.setup_close_discard() end,
+  discard = function() echo.setup_close_discard() end,
+  help    = function() echo.print_help() end,
+  s       = function() echo.setup_close_save() end,
+  save    = function() echo.setup_close_save() end,
+  set     = function(...)
     if select('#', ...) == 0 then
       echo.print_help()
     else
       echo.cmd_set(table.concat({...}, ' '))
     end
   end,
-  setup = function() echo.setup_open() end,
 }
 
 windower.register_event('load',   function() echo.on_load() end)
