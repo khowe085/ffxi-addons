@@ -99,7 +99,7 @@ test('on_mouse stages element position on mouse-up while in setup', function()
   local el = e.get_element()
   el._x = 120
   el._y = 250
-  e.on_mouse(3, 0, 0)
+  e.on_mouse(2, 0, 0)
   assert_eq(120, e.get_staged().pos_x, 'staged.pos_x from element on mouse-up')
   assert_eq(250, e.get_staged().pos_y, 'staged.pos_y from element on mouse-up')
 end)

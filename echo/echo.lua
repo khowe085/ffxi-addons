@@ -1,4 +1,5 @@
 local settings_lib = require('../../lib/settings')
+local texts        = require('texts')
 
 _addon.name     = 'Echo'
 _addon.author   = 'Windower Addons'
@@ -127,7 +128,7 @@ end
 -- element:pos_x()/pos_y() rather than the event x,y.
 function echo.on_mouse(mtype, x, y)
   if not settings_lib.in_setup() then return false end
-  if mtype == 3 then
+  if mtype == 2 then
     echo.change_pos(element:pos_x(), element:pos_y())
   end
   return false
