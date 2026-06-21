@@ -201,8 +201,18 @@ Every addon directory must contain a `README.md` that includes:
    ```
 
 4. **Configuration** — description of settings stored in `data/{CharacterName}/settings.json`
+5. **Libraries** — a list of every Windower/shared library the addon requires (e.g. `texts`, `packets`, `lib/settings`), formatted the way Windower addons declare them:
 
-Keep the per-addon README current whenever commands are added or removed.
+   ```markdown
+   ## Libraries
+
+   | Library | Purpose |
+   |---------|---------|
+   | `lib/settings` | Per-character settings persistence |
+   | `texts` | In-game text overlay |
+   ```
+
+Keep the per-addon README current whenever commands, libraries, or configuration change.
 
 ## Testing
 
@@ -252,7 +262,7 @@ Every task follows this agent pipeline:
 
 ### Planning
 
-Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root, and the feature branch `feat/<plan-name>` is created off `main` at the same time. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units. All work for the plan is committed to its feature branch.
+Before implementation, a plan is written to `.planning/<plan-name>.md` at the repository root, and the feature branch `feat/<plan-name>` is created off `main` at the same time. **Always pull the latest `main` before creating the feature branch** (`git pull origin main`) so the branch starts from the current tip. The plan includes a **Tasks** section that breaks the work into discrete, independently implementable units. All work for the plan is committed to its feature branch.
 
 ### Stages
 
@@ -271,8 +281,10 @@ Before implementation, a plan is written to `.planning/<plan-name>.md` at the re
 
 ### Rules
 
+- **This workflow applies to all work — features and bugfixes alike.** There are no shortcuts; every change goes through planning, review, QA, and a PR.
 - Plans live in `.planning/` at the repository root; each plan has a matching `feat/<plan-name>` branch created when the plan is written, and all of its work is committed there.
 - The **Tasks** section of the plan defines parallel work units; each task maps to exactly one lua-dev worktree.
 - lua-dev **must not** move past the review stage until lua-reviewer raises zero blocking issues.
 - lua-QA is the final gate — work is not merged onto the feature branch, and no PR is opened, while tests are failing.
 - The PR against `main` is opened only after lua-QA approves, and its description contains the release notes for the change.
+- **Worktrees must be removed after their task work is merged onto the feature branch.** Run `git worktree remove <path>` (or `--force` if unclean) once the worktree's commits are merged.
