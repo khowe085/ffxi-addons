@@ -142,8 +142,11 @@ when the event is over the window so the addon blocks it from the game) · `gui:
 
 ### Behavior contract
 
-- The window is draggable by its header during config; the addon persists the anchor via `on_move`
-  → `settings.stage_set`. Disable dragging on close.
+- The chrome draws visually distinct header and footer bands plus button-styled Save/Discard hit
+  targets inset in the footer (via the injected `images`); the body is clipped to the frame and
+  monospace text tabs truncate over-long lines with an ellipsis so nothing overflows the window.
+- The window is draggable by its header only during config; the body is not draggable. The addon
+  persists the anchor via `on_move` → `settings.stage_set`. Disable dragging on close.
 - Every mouse event over the open window is consumed (returns `true`) so clicks never reach the game.
 - Scrolling (text tabs) uses the right-side `▲`/`▼` buttons; they are hidden when content fits.
 - Chrome hit-testing uses rects computed from the layout (not `texts:hover`, whose extents are

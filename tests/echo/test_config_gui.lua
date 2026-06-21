@@ -45,14 +45,16 @@ local function fresh(file)
 end
 
 -- Echo opens its config window at config_x/config_y (default 100,100) with
--- size 320x160. Footer row is the bottom 18px: Save on the left half, Discard
--- on the right half. Header row is the top 18px.
+-- size 470x310. The footer is the bottom row, with inset button-shaped Save and
+-- Discard rects: Save on the left half, Discard on the right half (mid-line at
+-- half_w = 235). The button y-band sits inside the footer row near y = 300.
+-- Header row is the top 18px.
 local function save_point(gui_anchor_x, gui_anchor_y)
-  return gui_anchor_x + 10, gui_anchor_y + 160 - 9
+  return gui_anchor_x + 10, gui_anchor_y + 300
 end
 
 local function discard_point(gui_anchor_x, gui_anchor_y)
-  return gui_anchor_x + 200, gui_anchor_y + 160 - 9
+  return gui_anchor_x + 350, gui_anchor_y + 300
 end
 
 local function header_point(gui_anchor_x, gui_anchor_y)
