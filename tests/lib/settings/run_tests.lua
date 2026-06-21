@@ -17,5 +17,6 @@ run(dir .. 'test_load.lua')
 run(dir .. 'test_staging.lua')
 run(dir .. 'test_login.lua')
 run(dir .. 'test_config_gui.lua')
+run(dir .. 'test_write_file.lua')
 
 io.write('\nAll tests passed.\n')
