@@ -31,8 +31,8 @@ Files explicitly excluded from the zip: `data/` (runtime/user config), `tests/`.
 - **Trigger**: `workflow_dispatch` (manual trigger from the GitHub Actions UI)
 - **Inputs**:
   - `release_name` (required) — the GitHub Release title
-  - `release_notes` (required, multiline) — the release body / changelog text
 - **Tag**: `v<YYYY.MM.DD>` (e.g., `v2026.06.21`), generated from the current UTC date at run time; if multiple releases land on the same day, append `-2`, `-3`, etc.
+- **Release notes**: auto-generated from git history since the previous release tag using GitHub's release-notes API (`gh api repos/{owner}/{repo}/releases/generate-notes`). This pulls merged PR titles and bodies between the last tag and HEAD.
 - **Asset filenames**: `<addon-name>-v<_addon.version>.zip` — version extracted from `_addon.version` in the Lua source via grep/sed
 
 ## Detecting changed addons
@@ -80,9 +80,6 @@ on:
       release_name:
         description: 'Release title'
         required: true
-      release_notes:
-        description: 'Release notes / changelog'
-        required: true
 
 jobs:
   release:
@@ -92,32 +89,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Detect addons
-        id: addons
-        run: |
-          # all top-level dirs with a matching .lua entry point
-          addons=$(for d in */; do d="${d%/}"; [ -f "$d/$d.lua" ] && echo "$d"; done)
-          echo "list=$addons" >> $GITHUB_OUTPUT
-
-      - name: Package addons
-        run: |
-          for addon in $CHANGED_ADDONS; do
-            # copy lib into addon staging area
-            mkdir -p staging/$addon/lib/settings
-            cp -r $addon/. staging/$addon/
-            cp lib/settings/settings.lua staging/$addon/lib/settings/settings.lua
-            rm -rf staging/$addon/data   # never ship runtime data
-            # extract version from _addon.version = 'x.y.z'
-            version=$(grep -m1 "_addon.version" $addon/$addon.lua | grep -oE "'[0-9.]+'" | tr -d "'")
-            (cd staging && zip -r ../$addon-v${version}.zip $addon/)
-          done
+        with:
+          fetch-depth: 0   # full history needed for tag lookup
 
       - name: Generate tag
         id: tag
         run: |
           base="v$(date -u +%Y.%m.%d)"
-          # append suffix if tag already exists
           tag="$base"
           n=2
           while git ls-remote --tags origin "refs/tags/$tag" | grep -q .; do
@@ -125,16 +103,45 @@ jobs:
           done
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
+      - name: Generate release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prev=$(git tag --sort=-version:refname | head -1)
+          args="--field tag_name=${{ steps.tag.outputs.tag }}"
+          [ -n "$prev" ] && args="$args --field previous_tag_name=$prev"
+          body=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+            $args --jq '.body')
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$body"     >> $GITHUB_OUTPUT
+          echo "EOF"       >> $GITHUB_OUTPUT
+
+      - name: Detect addons
+        id: addons
+        run: |
+          addons=$(for d in */; do d="${d%/}"; [ -f "$d/$d.lua" ] && echo "$d"; done | tr '\n' ' ')
+          echo "list=$addons" >> $GITHUB_OUTPUT
+
+      - name: Package addons
+        run: |
+          for addon in ${{ steps.addons.outputs.list }}; do
+            mkdir -p staging/$addon/lib/settings
+            cp -r $addon/. staging/$addon/
+            cp lib/settings/settings.lua staging/$addon/lib/settings/settings.lua
+            rm -rf staging/$addon/data
+            version=$(grep -m1 "_addon.version" $addon/$addon.lua | grep -oE "'[0-9.]+'" | tr -d "'")
+            (cd staging && zip -r ../$addon-v${version}.zip $addon/)
+          done
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ github.event.inputs.release_name }}
-          body: ${{ github.event.inputs.release_notes }}
+          body: ${{ steps.notes.outputs.body }}
           files: "*.zip"
 ```
-
-Exact tag generation: use `${{ github.run_id }}` or format the merge date from `github.event.pull_request.merged_at` via a `date` step.
 
 ### Task 3 — Smoke-test the workflow locally (optional but recommended)
 
@@ -143,6 +150,4 @@ Use [`act`](https://github.com/nektos/act) to run the workflow locally against a
 ## Out of scope
 
 - Publishing to any package registry
-- Changelog generation beyond the PR body
 - Signing or checksumming release artifacts
-- Releasing unchanged addons when only lib changes (future: could trigger a re-release of all addons if `lib/settings/settings.lua` changes)
