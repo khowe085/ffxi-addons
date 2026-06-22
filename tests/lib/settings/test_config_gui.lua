@@ -524,6 +524,142 @@ test('set_pos while closed updates the anchor without showing', function()
   assert_eq(false, gui:handle_mouse(1, 10, 10), 'old origin no longer over window')
 end)
 
+test('footer buttons are inset within the window', function()
+  local anchor_x, anchor_y = 100, 100
+  local width, height = 320, 160
+  local gui = make_gui({ pos = { x = anchor_x, y = anchor_y }, images = images,
+    size = { width = width, height = height } })
+  gui:show({ text_tab('General', 3) })
+  local rects = gui:_rects_for_test()
+  local save, discard = rects.save, rects.discard
+  assert_true(save.x > anchor_x, 'save left edge inside the window left border')
+  assert_true(discard.x + discard.w < anchor_x + width, 'discard right edge inside the window right border')
+  assert_true(save.y + save.h <= anchor_y + height, 'save bottom edge inside the window bottom border')
+  assert_true(discard.y + discard.h <= anchor_y + height, 'discard bottom edge inside the window bottom border')
+  assert_true(save.y > anchor_y, 'save top edge inside the window')
+end)
+
+test('native dragging disabled on all chrome', function()
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 }, images = images,
+    size = { width = 320, height = 160 } })
+  gui:set_draggable(true)
+  -- Two tabs so a tab bar (and tab labels) exists to check.
+  gui:show({ text_tab('Alpha', 2), text_tab('Beta', 2) })
+
+  assert_eq(false, gui:_bg_for_test()._draggable, 'backdrop native drag disabled')
+
+  -- Every image band has native drag disabled.
+  for _, n in ipairs({ 'header_bg', 'footer_bg', 'save_bg', 'discard_bg' }) do
+    local band = gui:_band_for_test(n)
+    assert_true(band ~= nil, n .. ' band exists')
+    assert_eq(false, band._draggable, n .. ' native drag disabled')
+  end
+
+  -- Every chrome text element has native drag disabled.
+  for name, el in pairs(gui:_chrome_for_test()) do
+    assert_eq(false, el._draggable, name .. ' native drag disabled')
+  end
+
+  -- Every tab label has native drag disabled.
+  for i, label in ipairs(gui:_tab_labels_for_test()) do
+    assert_eq(false, label._draggable, 'tab label ' .. i .. ' native drag disabled')
+  end
+
+  -- A move event over the BODY (not the header), with no active drag, must not
+  -- re-anchor the window and must fire no on_move: dragging is header-only.
+  gui:handle_mouse(0, 60, 60)
+  gui:handle_mouse(2, 60, 60)
+  assert_eq(0, #rec.moves, 'body move does not fire on_move')
+  -- Window did not move: original origin still over the window.
+  assert_true(gui:handle_mouse(1, 10, 10), 'origin still over window (no body-drag re-anchor)')
+end)
+
+test('zone bands track the window on a header drag', function()
+  local gui, rec = make_gui({ pos = { x = 100, y = 100 }, images = images,
+    size = { width = 320, height = 160 } })
+  gui:set_draggable(true)
+  gui:show({ text_tab('General', 2) })
+
+  local band_names = { 'header_bg', 'footer_bg', 'save_bg', 'discard_bg' }
+  local bands = {}
+  for _, n in ipairs(band_names) do
+    local band = gui:_band_for_test(n)
+    assert_true(band ~= nil, n .. ' band created when images injected')
+    assert_eq(true, band._visible, n .. ' shown with the window')
+    bands[n] = band
+  end
+
+  local rects = gui:_rects_for_test()
+  local save_before = { x = rects.save.x, y = rects.save.y }
+  local discard_before = { x = rects.discard.x, y = rects.discard.y }
+  local band_before = {}
+  for _, n in ipairs(band_names) do
+    band_before[n] = { x = bands[n]._x, y = bands[n]._y }
+  end
+
+  -- Drag the header (row y=100..118 at anchor 100,100) by +30,+40.
+  assert_true(gui:handle_mouse(1, 110, 105), 'header left-down starts drag')
+  assert_true(gui:handle_mouse(0, 140, 145), 'move re-anchors')
+  assert_true(gui:handle_mouse(2, 140, 145), 'release ends drag')
+
+  local after = gui:_rects_for_test()
+  assert_eq(save_before.x + 30, after.save.x, 'save button shifted x by +30')
+  assert_eq(save_before.y + 40, after.save.y, 'save button shifted y by +40')
+  assert_eq(discard_before.x + 30, after.discard.x, 'discard button shifted x by +30')
+  assert_eq(discard_before.y + 40, after.discard.y, 'discard button shifted y by +40')
+
+  for _, n in ipairs(band_names) do
+    assert_eq(band_before[n].x + 30, bands[n]._x, n .. ' shifted x by +30')
+    assert_eq(band_before[n].y + 40, bands[n]._y, n .. ' shifted y by +40')
+  end
+
+  gui:hide()
+  for _, n in ipairs(band_names) do
+    assert_eq(false, bands[n]._visible, n .. ' hidden with the window')
+  end
+
+  gui:destroy()
+  for _, n in ipairs(band_names) do
+    assert_eq(true, bands[n]._destroyed, n .. ' destroyed on gui:destroy')
+  end
+end)
+
+test('monospace body clip: long line truncated with ellipsis, short line verbatim', function()
+  -- Mirror the module's fallback so the test stays correct if utf8 ever exists.
+  local ellipsis = (utf8 and utf8.char(0x2026)) or '...'
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  local cols = gui:_body_cols_for_test()
+  local long = string.rep('x', 200)
+  gui:show({ { title = 'General', lines = { 'General line 1', long } } })
+
+  local body = gui:_body_text_for_test()
+  local last
+  for line in (body .. '\n'):gmatch('(.-)\n') do
+    assert_true(#line <= cols, 'rendered line within body_cols (' .. #line .. ' <= ' .. cols .. ')')
+    last = line
+  end
+  assert_true(has_line(body, 'General line 1'), 'short line emitted verbatim')
+  -- The truncated line is shorter than its source and ends with the module's ellipsis.
+  assert_true(#last < #long, 'long line was truncated (' .. #last .. ' < ' .. #long .. ')')
+  assert_eq(ellipsis, last:sub(-#ellipsis), 'long line ends with the module ellipsis')
+end)
+
+test('narrow window: body_cols clamps to >= 1 and renders a single clipped line', function()
+  -- At width 30, (width - BUTTON_W - 2*BODY_PAD) is small/negative, so body_cols
+  -- must clamp to >= 1 and clip_line must take its cols <= #ELLIPSIS branch.
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 30, height = 160 } })
+  local cols = gui:_body_cols_for_test()
+  assert_true(cols >= 1, 'body_cols clamps to at least 1 (got ' .. cols .. ')')
+
+  local long = string.rep('x', 200)
+  gui:show({ { title = 'General', lines = { long } } })
+
+  local body = gui:_body_text_for_test()
+  assert_eq(false, contains(body, '\n'), 'narrow body renders a single line')
+  assert_true(#body <= cols, 'clipped line within body_cols (' .. #body .. ' <= ' .. cols .. ')')
+  assert_true(#body >= 1, 'clipped line is non-empty')
+end)
+
 test('a gui built with no callbacks survives clicks and drag without error', function()
   local gui = config_gui.new({
     texts = texts,

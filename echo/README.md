@@ -30,12 +30,13 @@ All commands use the alias `ec` (or the full name `echo`).
 
 ## Configuration GUI
 
-`//ec config` opens a draggable configuration window (built on `lib/settings/config_gui`) with an
-**Echo** header, a body showing the current `text` / `pos_x` / `pos_y` and a positioning hint, and a
-footer with **Save** and **Discard** buttons. While it is open:
+`//ec config` opens a configuration window (built on `lib/settings/config_gui`) with a visually
+distinct **Echo** header band, a body showing the current `text` / `pos_x` / `pos_y` and a
+positioning hint, and a distinct footer band holding button-styled **Save** and **Discard** hit
+targets. While it is open:
 
 - Drag the on-screen **text overlay** to reposition it — `pos_x`/`pos_y` update when you release the mouse.
-- Drag the **window header** to move the config window itself — its anchor (`config_x`/`config_y`) is saved.
+- Drag the **window header** to move the config window itself — its anchor (`config_x`/`config_y`) is saved. Only the header drags the window; the body is not draggable.
 - If the text is empty when you open config, it is shown as `SAMPLE TEXT` so there is always something to position.
 - Clicks anywhere on the window are captured and never pass through to the game.
 - **Save** (or `//ec save`) commits the staged changes; **Discard** (or `//ec discard`) reverts them. Both close the window.

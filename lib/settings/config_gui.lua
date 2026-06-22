@@ -13,6 +13,14 @@ local FOOTER_ROWS = 1
 local TABBAR_ROWS = 1
 local BUTTON_W = 18
 
+local BTN_MARGIN = 4
+local BTN_GAP = 6
+local BTN_VPAD = 3
+local BODY_PAD = 4
+local BODY_FONT = 'Consolas'
+local BODY_FONT_SIZE = 11
+local GLYPH_W = 7
+
 local DEFAULT_WIDTH = 400
 local DEFAULT_HEIGHT = 200
 
@@ -35,8 +43,21 @@ local function point_in(r, x, y)
   return r ~= nil and x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h
 end
 
+-- Lua 5.1 (and Windower) ship no utf8 library, so this falls back to '...'.
+local ELLIPSIS = (utf8 and utf8.char(0x2026)) or '...'
+
+-- Truncate a line to `cols` columns, appending ELLIPSIS when it was longer.
+local function clip_line(line, cols)
+  line = tostring(line or '')
+  if #line <= cols then return line end
+  local ew = #ELLIPSIS
+  if cols <= ew then return line:sub(1, cols) end
+  return line:sub(1, cols - ew) .. ELLIPSIS
+end
+
 -- Forward declarations of private functions (each takes the state table).
 local active_tab
+local body_cols
 local body_viewport
 local has_tab_bar
 local hide_all
@@ -92,11 +113,40 @@ function config_gui.new(opts)
       color = { alpha = 200, red = 0, green = 0, blue = 0 },
       flags = { draggable = false },
     })
+    -- Created after bg so these draw on top of it. Re-sized/positioned in layout.
+    state.header_bg = state.images.new({
+      pos   = { x = 0, y = 0 },
+      size  = { width = state.width, height = ROW_HEIGHT },
+      color = { alpha = 235, red = 30, green = 40, blue = 60 },
+      flags = { draggable = false },
+    })
+    state.footer_bg = state.images.new({
+      pos   = { x = 0, y = 0 },
+      size  = { width = state.width, height = ROW_HEIGHT },
+      color = { alpha = 235, red = 30, green = 40, blue = 60 },
+      flags = { draggable = false },
+    })
+    state.save_bg = state.images.new({
+      pos   = { x = 0, y = 0 },
+      size  = { width = ROW_HEIGHT, height = ROW_HEIGHT },
+      color = { alpha = 255, red = 40, green = 70, blue = 110 },
+      flags = { draggable = false },
+    })
+    state.discard_bg = state.images.new({
+      pos   = { x = 0, y = 0 },
+      size  = { width = ROW_HEIGHT, height = ROW_HEIGHT },
+      color = { alpha = 255, red = 110, green = 45, blue = 45 },
+      flags = { draggable = false },
+    })
   end
 
   state.panel   = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
   state.header  = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
-  state.body    = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
+  state.body    = txt.new('', {
+    pos   = { x = 0, y = 0 },
+    text  = { font = BODY_FONT, size = BODY_FONT_SIZE },
+    flags = { draggable = false },
+  })
   state.save    = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
   state.discard = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
   state.up      = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
@@ -107,6 +157,22 @@ function config_gui.new(opts)
   state.discard:text('Discard')
   state.up:text(utf8 and utf8.char(0x25B2) or '^')
   state.down:text(utf8 and utf8.char(0x25BC) or 'v')
+
+  -- Disable native dragging on every chrome element so the window moves ONLY via
+  -- the helper's synthetic header drag. Windower images/texts honor native drag
+  -- unless :draggable(false) is also called (flags.draggable is not enough).
+  if state.bg then state.bg:draggable(false) end
+  if state.header_bg then state.header_bg:draggable(false) end
+  if state.footer_bg then state.footer_bg:draggable(false) end
+  if state.save_bg then state.save_bg:draggable(false) end
+  if state.discard_bg then state.discard_bg:draggable(false) end
+  state.panel:draggable(false)
+  state.header:draggable(false)
+  state.body:draggable(false)
+  state.save:draggable(false)
+  state.discard:draggable(false)
+  state.up:draggable(false)
+  state.down:draggable(false)
 
   local gui = {}
 
@@ -120,6 +186,10 @@ function config_gui.new(opts)
     end
     state.tab_labels = {}
     if state.bg then state.bg:destroy() end
+    if state.header_bg then state.header_bg:destroy() end
+    if state.footer_bg then state.footer_bg:destroy() end
+    if state.save_bg then state.save_bg:destroy() end
+    if state.discard_bg then state.discard_bg:destroy() end
     state.panel:destroy()
     state.header:destroy()
     state.body:destroy()
@@ -262,6 +332,10 @@ function config_gui.new(opts)
     state.open = true
     layout(state, state.anchor_x, state.anchor_y)
     if state.bg then state.bg:show() end
+    if state.header_bg then state.header_bg:show() end
+    if state.footer_bg then state.footer_bg:show() end
+    if state.save_bg then state.save_bg:show() end
+    if state.discard_bg then state.discard_bg:show() end
     state.panel:show()
     state.header:show()
     state.save:show()
@@ -296,8 +370,28 @@ function config_gui.new(opts)
     return state.bg
   end
 
+  function gui:_band_for_test(name)
+    return state[name]
+  end
+
+  function gui:_chrome_for_test()
+    return {
+      panel   = state.panel,
+      header  = state.header,
+      body    = state.body,
+      save    = state.save,
+      discard = state.discard,
+      up      = state.up,
+      down    = state.down,
+    }
+  end
+
   function gui:_rects_for_test()
     return state.rects
+  end
+
+  function gui:_body_cols_for_test()
+    return body_cols(state)
   end
 
   return gui
@@ -307,6 +401,10 @@ end
 
 function active_tab(state)
   return state.tabs[state.active]
+end
+
+function body_cols(state)
+  return math.max(1, math.floor((state.width - BUTTON_W - 2 * BODY_PAD) / GLYPH_W))
 end
 
 function body_viewport(state)
@@ -324,6 +422,10 @@ end
 
 function hide_all(state)
   if state.bg then state.bg:hide() end
+  if state.header_bg then state.header_bg:hide() end
+  if state.footer_bg then state.footer_bg:hide() end
+  if state.save_bg then state.save_bg:hide() end
+  if state.discard_bg then state.discard_bg:hide() end
   state.panel:hide()
   state.header:hide()
   state.body:hide()
@@ -349,6 +451,7 @@ function install_tabs(state, tabs)
     new_offsets[i] = state.offsets[i] or 0
     local label = state.texts.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
     label:text(tab.title or ('Tab ' .. i))
+    label:draggable(false)
     state.tab_labels[i] = label
   end
   state.offsets = new_offsets
@@ -372,9 +475,36 @@ function layout(state, anchor_x, anchor_y)
     end
   end
 
+  local footer_y = state.height - FOOTER_ROWS * ROW_HEIGHT
+  local half_w = math.floor(state.width / 2)
+  local g = math.floor(BTN_GAP / 2)
+  local btn_y = footer_y + BTN_VPAD
+  local btn_h = ROW_HEIGHT - 2 * BTN_VPAD
+  local save_x = BTN_MARGIN
+  local save_w = (half_w - g) - BTN_MARGIN
+  local discard_x = half_w + g
+  local discard_w = (state.width - BTN_MARGIN) - (half_w + g)
+
   if state.bg then
     state.bg:pos(anchor_x, anchor_y)
     state.bg:size(state.width, state.height)
+  end
+
+  if state.header_bg then
+    state.header_bg:pos(anchor_x, anchor_y)
+    state.header_bg:size(state.width, HEADER_ROWS * ROW_HEIGHT)
+  end
+  if state.footer_bg then
+    state.footer_bg:pos(anchor_x, anchor_y + footer_y)
+    state.footer_bg:size(state.width, FOOTER_ROWS * ROW_HEIGHT)
+  end
+  if state.save_bg then
+    state.save_bg:pos(anchor_x + save_x, anchor_y + btn_y)
+    state.save_bg:size(save_w, btn_h)
+  end
+  if state.discard_bg then
+    state.discard_bg:pos(anchor_x + discard_x, anchor_y + btn_y)
+    state.discard_bg:size(discard_w, btn_h)
   end
 
   set(state.panel, 'panel', 0, 0, state.width, state.height)
@@ -403,10 +533,8 @@ function layout(state, anchor_x, anchor_y)
   set(state.up, 'up', state.width - BUTTON_W, body_top, BUTTON_W, half)
   set(state.down, 'down', state.width - BUTTON_W, body_top + half, BUTTON_W, body_h - half)
 
-  local footer_y = state.height - FOOTER_ROWS * ROW_HEIGHT
-  local half_w = math.floor(state.width / 2)
-  set(state.save, 'save', 0, footer_y, half_w, ROW_HEIGHT)
-  set(state.discard, 'discard', half_w, footer_y, state.width - half_w, ROW_HEIGHT)
+  set(state.save, 'save', save_x, btn_y, save_w, btn_h)
+  set(state.discard, 'discard', discard_x, btn_y, discard_w, btn_h)
 end
 
 function over_window(state, x, y)
@@ -436,9 +564,10 @@ function render_active(state)
   local lines = active.lines or {}
   local offset = state.offsets[state.active] or 0
   local rows = visible_rows(state)
+  local cols = body_cols(state)
   local slice = {}
   for i = offset + 1, math.min(#lines, offset + rows) do
-    slice[#slice + 1] = lines[i]
+    slice[#slice + 1] = clip_line(lines[i], cols)
   end
   state.body:text(table.concat(slice, '\n'))
   if state.open then state.body:show() end

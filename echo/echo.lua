@@ -89,7 +89,7 @@ function echo.init()
       on_discard = echo.setup_close_discard,
       on_move    = stage_config_pos,
       pos        = { x = live_settings.config_x, y = live_settings.config_y },
-      size       = { width = 320, height = 160 },
+      size       = { width = 470, height = 310 },
     })
   end
   gui:set_draggable(false)
@@ -146,8 +146,8 @@ function echo.build_tabs(s)
         'Text:  ' .. tostring(s.text or ''),
         'pos_x: ' .. tostring(s.pos_x or 0),
         'pos_y: ' .. tostring(s.pos_y or 0),
-        'Drag the text to set its position; drag this window\'s',
-        'header to move it. Saved on Save.',
+        'Drag the text to set its position.',
+        'Drag this header to move the window. Saved on Save.',
       },
     },
   }
