@@ -660,6 +660,75 @@ test('narrow window: body_cols clamps to >= 1 and renders a single clipped line'
   assert_true(#body >= 1, 'clipped line is non-empty')
 end)
 
+test('footer buttons fill the footer row height and the whole height is clickable', function()
+  -- Bugs 1 & 2: the colored chip / hit-rect span the full footer ROW_HEIGHT (~18),
+  -- not the old 12px inset, so the label cannot spill outside a clickable strip.
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 }, images = images,
+    size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 3) })
+  local save = gui:_rects_for_test().save
+  assert_true(save.h >= 16, 'save hit-rect spans ~ROW_HEIGHT, not the old 12px (got ' .. save.h .. ')')
+  -- Footer row is y in [142,160). A click near the TOP and near the BOTTOM both fire Save.
+  assert_true(save.y >= 142, 'save top at the footer row top')
+  assert_true(save.y + save.h <= 160, 'save bottom flush with the window bottom')
+  assert_true(gui:handle_mouse(1, 10, 143), 'click near footer top consumed')
+  assert_eq(1, rec.save, 'top-of-row click fired Save')
+  assert_true(gui:handle_mouse(1, 10, 159), 'click near footer bottom consumed')
+  assert_eq(2, rec.save, 'bottom-of-row click fired Save')
+end)
+
+test('a window-closing Save swallows the paired mouse-up so it never leaks to the game', function()
+  -- Bug 3: a left click is down(1)+up(2). on_save runs on the down and closes the
+  -- window; the paired up must still be consumed, not leak through to the game.
+  local gui
+  local saved = 0
+  gui = config_gui.new({
+    texts   = texts,
+    title   = 'Closer',
+    on_save = function()
+      saved = saved + 1
+      gui:hide()
+    end,
+    pos     = { x = 0, y = 0 },
+    size    = { width = 320, height = 160 },
+  })
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(1, 10, 152), 'save down consumed')
+  assert_eq(1, saved, 'on_save fired once on the down')
+  assert_eq(false, gui:is_open(), 'window closed by on_save')
+  -- The window is now closed, but the paired up at the same coords is swallowed.
+  assert_true(gui:handle_mouse(2, 10, 152), 'paired up swallowed after window-closing save')
+  -- Only that one up is swallowed: a second stray up is no longer consumed.
+  assert_eq(false, gui:handle_mouse(2, 10, 152), 'subsequent stray up not consumed')
+end)
+
+test('a window-closing Discard swallows the paired mouse-up so it never leaks to the game', function()
+  local gui
+  local discarded = 0
+  gui = config_gui.new({
+    texts      = texts,
+    title      = 'Closer',
+    on_discard = function()
+      discarded = discarded + 1
+      gui:hide()
+    end,
+    pos        = { x = 0, y = 0 },
+    size       = { width = 320, height = 160 },
+  })
+  gui:show({ text_tab('General', 2) })
+  assert_true(gui:handle_mouse(1, 250, 152), 'discard down consumed')
+  assert_eq(1, discarded, 'on_discard fired once on the down')
+  assert_eq(false, gui:is_open(), 'window closed by on_discard')
+  assert_true(gui:handle_mouse(2, 250, 152), 'paired up swallowed after window-closing discard')
+  assert_eq(false, gui:handle_mouse(2, 250, 152), 'subsequent stray up not consumed')
+end)
+
+test('a never-opened gui consumes no stray mouse-up', function()
+  -- swallow_up starts false, so a fresh gui returns false for an unpaired up.
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  assert_eq(false, gui:handle_mouse(2, 10, 152), 'never-shown gui does not consume a stray up')
+end)
+
 test('a gui built with no callbacks survives clicks and drag without error', function()
   local gui = config_gui.new({
     texts = texts,

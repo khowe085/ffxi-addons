@@ -15,11 +15,13 @@ local BUTTON_W = 18
 
 local BTN_MARGIN = 4
 local BTN_GAP = 6
-local BTN_VPAD = 3
 local BODY_PAD = 4
 local BODY_FONT = 'Consolas'
 local BODY_FONT_SIZE = 11
+local BTN_FONT_SIZE = 11
 local GLYPH_W = 7
+-- Vertical inset of the centered label text within its full-height button.
+local BTN_TEXT_INSET = 2
 
 local DEFAULT_WIDTH = 400
 local DEFAULT_HEIGHT = 200
@@ -91,6 +93,11 @@ function config_gui.new(opts)
     dragging    = false,
     drag_dx     = 0,
     drag_dy     = 0,
+    -- A left click is a down (mtype 1) + up (mtype 2) pair. When the down over
+    -- Save/Discard closes the window, the paired up would otherwise hit the
+    -- `not state.open` guard and leak to the game. This flag remembers to swallow
+    -- exactly that one orphaned up so every event over the window stays consumed.
+    swallow_up  = false,
     tabs        = {},
     active      = 1,
     offsets     = {},
@@ -147,8 +154,24 @@ function config_gui.new(opts)
     text  = { font = BODY_FONT, size = BODY_FONT_SIZE },
     flags = { draggable = false },
   })
-  state.save    = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
-  state.discard = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
+  -- Footer button labels: explicit monospace font/size so glyph width is known
+  -- and predictable (GLYPH_W) and the text never renders at Windower's default
+  -- size and overflow the colored button background. A transparent text bg lets
+  -- the save_bg/discard_bg image show through behind the centered label.
+  state.save    = txt.new('', {
+    pos     = { x = 0, y = 0 },
+    text    = { font = BODY_FONT, size = BTN_FONT_SIZE },
+    bg      = { visible = false },
+    padding = 0,
+    flags   = { draggable = false },
+  })
+  state.discard = txt.new('', {
+    pos     = { x = 0, y = 0 },
+    text    = { font = BODY_FONT, size = BTN_FONT_SIZE },
+    bg      = { visible = false },
+    padding = 0,
+    flags   = { draggable = false },
+  })
   state.up      = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
   state.down    = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
 
@@ -200,6 +223,15 @@ function config_gui.new(opts)
   end
 
   function gui:handle_mouse(mtype, x, y, delta)
+    -- A window-closing Save/Discard ran on the paired DOWN, so the matching UP
+    -- arrives after state.open is already false. Consume that one orphaned up
+    -- here (before the open guard) so it never leaks through to the game.
+    -- This swallows the next mouse-up regardless of intervening events; the OS
+    -- click down/up are adjacent in practice, so consuming the next up is safe.
+    if mtype == 2 and state.swallow_up then
+      state.swallow_up = false
+      return true
+    end
     if not state.open then return false end
 
     if state.dragging then
@@ -220,10 +252,12 @@ function config_gui.new(opts)
     if mtype == 1 then
       if point_in(state.rects.save, x, y) then
         if state.on_save then state.on_save() end
+        if not state.open then state.swallow_up = true end
         return true
       end
       if point_in(state.rects.discard, x, y) then
         if state.on_discard then state.on_discard() end
+        if not state.open then state.swallow_up = true end
         return true
       end
       if has_tab_bar(state) then
@@ -330,6 +364,7 @@ function config_gui.new(opts)
   function gui:show(tabs)
     install_tabs(state, tabs)
     state.open = true
+    state.swallow_up = false
     layout(state, state.anchor_x, state.anchor_y)
     if state.bg then state.bg:show() end
     if state.header_bg then state.header_bg:show() end
@@ -475,11 +510,18 @@ function layout(state, anchor_x, anchor_y)
     end
   end
 
+  -- One shared button rect per footer button drives the colored background, the
+  -- hit-rect, AND the centered label so all three always coincide. The buttons
+  -- fill the full footer ROW_HEIGHT (not a 12px inset) keeping only the
+  -- horizontal BTN_MARGIN/BTN_GAP insets, so the visible blue/red strip is the
+  -- whole clickable area and the label never spills past the colored chip.
+  -- btn_y = footer_y keeps the top edge below the window top (footer_y > 0) and
+  -- the bottom edge (btn_y + btn_h) flush with, never past, the window bottom.
   local footer_y = state.height - FOOTER_ROWS * ROW_HEIGHT
   local half_w = math.floor(state.width / 2)
   local g = math.floor(BTN_GAP / 2)
-  local btn_y = footer_y + BTN_VPAD
-  local btn_h = ROW_HEIGHT - 2 * BTN_VPAD
+  local btn_y = footer_y
+  local btn_h = FOOTER_ROWS * ROW_HEIGHT
   local save_x = BTN_MARGIN
   local save_w = (half_w - g) - BTN_MARGIN
   local discard_x = half_w + g
@@ -533,8 +575,22 @@ function layout(state, anchor_x, anchor_y)
   set(state.up, 'up', state.width - BUTTON_W, body_top, BUTTON_W, half)
   set(state.down, 'down', state.width - BUTTON_W, body_top + half, BUTTON_W, body_h - half)
 
-  set(state.save, 'save', save_x, btn_y, save_w, btn_h)
-  set(state.discard, 'discard', discard_x, btn_y, discard_w, btn_h)
+  -- Footer buttons: record the FULL-button hit-rect (the whole colored chip is
+  -- clickable) while positioning the label text at a horizontally centered offset
+  -- inside that rect. set() would force the text to the rect's top-left, so the
+  -- text :pos() and the rect assignment are done separately here. The label width
+  -- is the known monospace glyph width times the character count.
+  local place_button = function(el, name, bx, bw)
+    local label = el:text()
+    local text_w = GLYPH_W * #label
+    local tx = bx + math.max(0, math.floor((bw - text_w) / 2))
+    el:pos(anchor_x + tx, anchor_y + btn_y + BTN_TEXT_INSET)
+    el._width = bw
+    el._height = btn_h
+    state.rects[name] = { x = anchor_x + bx, y = anchor_y + btn_y, w = bw, h = btn_h }
+  end
+  place_button(state.save, 'save', save_x, save_w)
+  place_button(state.discard, 'discard', discard_x, discard_w)
 end
 
 function over_window(state, x, y)
