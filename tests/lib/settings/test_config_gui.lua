@@ -559,9 +559,9 @@ test('footer buttons are inset within the window', function()
   assert_true(save.y + save.h <= anchor_y + total_height, 'save bottom edge inside the window bottom border')
   assert_true(discard.y + discard.h <= anchor_y + total_height, 'discard bottom edge inside the window bottom border')
   assert_true(save.y > anchor_y, 'save top edge inside the window')
-  -- The pair is right-aligned with a fixed BTN_MARGIN gutter, and each button is
-  -- two rows tall (FOOTER_ROWS * ROW_HEIGHT = 36).
-  assert_eq(anchor_x + total_width - 4, discard.x + discard.w, 'discard right edge at the window minus BTN_MARGIN')
+  -- The pair is right-aligned with the right gap equal to the Save<->Discard gap
+  -- (BTN_GAP = 6), and each button is two rows tall (FOOTER_ROWS * ROW_HEIGHT = 36).
+  assert_eq(anchor_x + total_width - 6, discard.x + discard.w, 'discard right edge at the window minus BTN_GAP')
   assert_eq(36, save.h, 'save button spans two rows (2 * ROW_HEIGHT)')
   assert_eq(36, discard.h, 'discard button spans two rows (2 * ROW_HEIGHT)')
   assert_true(save.x + save.w <= discard.x, 'Save sits fully left of Discard (no overlap, gap between)')

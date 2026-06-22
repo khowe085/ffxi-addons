@@ -138,9 +138,10 @@ tab bar is hidden when there is a single tab). Each tab is either:
 
 `gui:select_tab(i)` · `gui:scroll(delta)` · `gui:show(tabs)` / `gui:hide()` / `gui:is_open()` ·
 `gui:set_tabs(tabs)` · `gui:set_pos(x, y)` · `gui:set_draggable(bool)` ·
-`gui:handle_mouse(mtype, x, y, delta)` (delegate the addon's `mouse` event here; returns `true`
-when the event is over the window so the addon blocks it from the game) · `gui:destroy()`
-(on `unload`).
+`gui:handle_mouse(mtype, x, y, delta)` (delegate the addon's `mouse` event here
+**unconditionally** — NOT gated on `gui:is_open()`; returns `true` when the event is over the
+window so the addon blocks it from the game, and also `true` to consume the lone mouse-up that
+pairs with a Save/Discard click that closed the window) · `gui:destroy()` (on `unload`).
 
 ### Behavior contract
 
@@ -153,7 +154,10 @@ when the event is over the window so the addon blocks it from the game) · `gui:
   monospace text tabs truncate over-long lines with an ellipsis so nothing overflows the window.
 - The window is draggable by its header only during config; the body is not draggable. The addon
   persists the anchor via `on_move` → `settings.stage_set`. Disable dragging on close.
-- Every mouse event over the open window is consumed (returns `true`) so clicks never reach the game.
+- Every mouse event over the open window is consumed (returns `true`) so clicks never reach the
+  game. A Save/Discard click closes the window on the mouse-DOWN, so the addon must delegate to
+  `gui:handle_mouse` **unconditionally** (not gated on `is_open()`) — otherwise the paired
+  mouse-UP, arriving after the window is already closed, would leak through to the game.
 - Scrolling (text tabs) uses the right-side `▲`/`▼` buttons; they are hidden when content fits.
 - Chrome hit-testing uses rects computed from the layout (not `texts:hover`, whose extents are
   glyph-based), so in-game behavior matches the tests.

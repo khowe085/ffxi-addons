@@ -13,14 +13,18 @@ local FOOTER_ROWS = 2
 local TABBAR_ROWS = 1
 local BUTTON_W = 18
 
-local BTN_MARGIN = 4
 local BTN_GAP = 6
 local BTN_W = 96
 local BODY_PAD = 4
 local BODY_FONT = 'Consolas'
 local BODY_FONT_SIZE = 11
 local BTN_FONT_SIZE = 11
-local GLYPH_W = 7
+-- Deliberately-conservative pixel estimate of the rendered advance of one Consolas
+-- BODY_FONT_SIZE glyph in Windower. Erring HIGH means char-count clipping truncates
+-- with the ellipsis rather than overflowing body_w, honoring the "nothing overflows
+-- the frame" contract for every addon. Needs an in-game eyeball; the safe direction
+-- is high (truncate, never spill past the frame).
+local GLYPH_W = 9
 -- Estimated rendered glyph height for BTN_FONT_SIZE 11; used to vertically center
 -- the label within the (now two-row) button so the text sits mid-height.
 local BTN_FONT_HEIGHT = 16
@@ -532,13 +536,14 @@ function layout(state, anchor_x, anchor_y)
   -- One shared button rect per footer button drives the colored background, the
   -- hit-rect, AND the centered label so all three always coincide. The pair is a
   -- fixed BTN_W wide, right-aligned to the window edge (Save left of Discard),
-  -- and FOOTER_ROWS rows tall. The label is centered both horizontally and
-  -- vertically within that rect.
+  -- and FOOTER_ROWS rows tall. The gap to the right frame edge equals the
+  -- Save<->Discard gap (BTN_GAP) so the pair sits symmetrically. The label is
+  -- centered both horizontally and vertically within that rect.
   local body_top = top_rows * ROW_HEIGHT
   local footer_y = body_top + state.body_h
   local btn_y = footer_y
   local btn_h = FOOTER_ROWS * ROW_HEIGHT
-  local discard_x = state.width - BTN_MARGIN - BTN_W
+  local discard_x = state.width - BTN_GAP - BTN_W
   local save_x = discard_x - BTN_GAP - BTN_W
 
   if state.bg then

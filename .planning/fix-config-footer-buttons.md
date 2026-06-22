@@ -260,3 +260,84 @@ footer buttons.** Scope: `lib/settings/config_gui.lua`, `tests/lib/settings/test
 `tests/echo/test_config_gui.lua`, `echo/echo.lua` (size value), `lib/settings/CLAUDE.md` +
 root `CLAUDE.md` (contract wording). Done when both suites are green (incl. a new
 "footer height does not change the body viewport" test), reviewer issues resolved, QA green.
+
+---
+
+# Round 3 — three follow-up defects from in-game testing
+
+PR #11 Round 2 still has three problems the user observed in-game:
+
+1. **Discard (and Save) clicks STILL pass through to the game.** The Round-1
+   `swallow_up` lives in `config_gui:handle_mouse`, but `echo.on_mouse` gates the call
+   behind `gui:is_open()`. The button fires on the mouse-DOWN and closes the window, so
+   the paired mouse-UP arrives with `is_open() == false` → `handle_mouse` is **never
+   called** → `swallow_up` can't consume it → the up leaks. The Round-1 unit test passed
+   only because it called `handle_mouse` directly, bypassing echo's `is_open()` gate. This
+   is an **integration bug in the reference addon's wiring**, not in the chrome.
+2. **Discard→frame-edge spacing ≠ inter-button spacing.** `discard_x = width -
+   BTN_MARGIN - BTN_W` gives a 4px (`BTN_MARGIN`) right gap, but the Save↔Discard gap is
+   6px (`BTN_GAP`). The right gap must equal the inter-button gap.
+3. **Body content extends beyond the frame again.** Line clipping is char-count based:
+   `body_cols = floor((body_w - 2*BODY_PAD) / GLYPH_W)` with `GLYPH_W = 7`. The real
+   rendered advance of Consolas-11 in Windower is wider (~8px at 96 DPI), so `body_cols`
+   over-counts and long lines render wider than `body_w`. Shrinking echo's body to 380 in
+   Round 2 exposed it: echo's longest line (~51 chars) now renders past the right edge.
+
+### Fixes
+
+**Part E — kill the passthrough at the source (`echo/echo.lua` + docs).**
+`echo.on_mouse` must delegate to `gui:handle_mouse` whenever `gui` exists, NOT gated on
+`is_open()`:
+```lua
+function echo.on_mouse(mtype, x, y, delta)
+  if gui and gui:handle_mouse(mtype, x, y, delta) then return true end
+  if not settings_lib.in_setup() then return false end
+  if mtype == 2 then echo.change_pos(element:pos_x(), element:pos_y()) end
+  return false
+end
+```
+`handle_mouse` already returns `false` when the window is closed and nothing is armed, so
+unconditional delegation is safe; it returns `true` only to consume the orphaned up. Update
+the reference-pattern note in `lib/settings/CLAUDE.md` (and the `handle_mouse` bullet) to
+state the addon must delegate **unconditionally** so the GUI can consume the mouse-up after
+it self-closes.
+
+**Part F — equal right gap (`config_gui.lua`).** `discard_x = state.width - BTN_GAP - BTN_W`
+(right gap == Save↔Discard gap == `BTN_GAP`); `save_x` stays `discard_x - BTN_GAP - BTN_W`.
+`BTN_MARGIN` is then unused (only ref is the old `discard_x`) — remove it.
+
+**Part G — body never overflows (`config_gui.lua` + `echo.lua`).** Calibrate
+`GLYPH_W = 9` — conservative (≥ the real Consolas-11 advance), so char-count clipping is
+guaranteed to fit within `body_w` (truncating with the ellipsis rather than overflowing;
+this honors the "nothing overflows the frame" contract for every addon). Then widen echo's
+body so its real content is NOT truncated at the new metric: `size = { width = 480,
+height = 110 }` (`body_cols = floor((480-8)/9) = 52 ≥ 51`-char longest line; 6 rows ≥ 5).
+
+> **Font-metric caveat (only non-testable bit):** `GLYPH_W` (and the cosmetic
+> `BTN_FONT_HEIGHT`) are pixel estimates of the rendered font. `GLYPH_W = 9` is chosen to
+> err high (safe = truncate, never overflow). Needs an in-game eyeball after `//lua r echo`;
+> if echo's text truncates with "…" the value is too high, if it still overflows it is too
+> low — one constant to tune.
+
+### Test impact
+
+- `tests/echo/test_commands.lua` (or a new echo case) — **integration regression test for
+  Part E**: open config, `e.on_mouse(1, discard_point)` returns true and closes the window,
+  then `e.on_mouse(2, discard_point)` returns **true** (paired up consumed, NOT leaked).
+  Same for Save. This is the test that was missing and would have caught the bug.
+- `tests/lib/settings/test_config_gui.lua` — `footer buttons are inset within the window`:
+  change the right-edge assertion to `discard.x + discard.w == anchor_x + total_width -
+  BTN_GAP`. body_cols-dependent tests read `_body_cols_for_test()` dynamically, so the
+  `GLYPH_W` change needs no edits there; the narrow-window clamp still holds
+  (`floor((30-8)/9) = 2 ≥ 1`).
+- `tests/echo/test_config_gui.lua` — echo body is now `480×110` ⇒ total `498×164`; rewrite
+  `save_point`/`discard_point` + comment for the new width and the `BTN_GAP` right gap.
+
+### Round 3 — Tasks
+
+**Task R3-1 — Passthrough wiring fix + button spacing + body-overflow calibration.** Single
+task in the session worktree. Scope: `echo/echo.lua`, `lib/settings/config_gui.lua`,
+`tests/echo/test_commands.lua`, `tests/echo/test_config_gui.lua`,
+`tests/lib/settings/test_config_gui.lua`, `lib/settings/CLAUDE.md` (delegation note). Done
+when both suites are green (incl. the new echo paired-up integration test), reviewer issues
+resolved, QA green.

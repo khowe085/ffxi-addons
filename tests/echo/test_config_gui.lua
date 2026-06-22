@@ -44,18 +44,18 @@ local function fresh(file)
   return e
 end
 
--- Echo's `size` is the BODY area (380x110); the total window is body + chrome.
--- One tab => total_width = 380+18 = 398, total_height = 18+110+36 = 164. The
+-- Echo's `size` is the BODY area (480x110); the total window is body + chrome.
+-- One tab => total_width = 480+18 = 498, total_height = 18+110+36 = 164. The
 -- footer band is the bottom two rows, y in [128,164) (center y = 146), holding a
--- right-aligned fixed-width Save/Discard pair (BTN_W = 96): Discard at x [298,394)
--- (center 346), Save just left of it at x [196,292) (center 244). Header row is
--- the top 18px.
+-- right-aligned fixed-width Save/Discard pair (BTN_W = 96) whose right gap equals
+-- the Save<->Discard gap (BTN_GAP = 6): Discard at x [396,492) (center 444), Save
+-- just left of it at x [294,390) (center 342). Header row is the top 18px.
 local function save_point(gui_anchor_x, gui_anchor_y)
-  return gui_anchor_x + 244, gui_anchor_y + 146
+  return gui_anchor_x + 342, gui_anchor_y + 146
 end
 
 local function discard_point(gui_anchor_x, gui_anchor_y)
-  return gui_anchor_x + 346, gui_anchor_y + 146
+  return gui_anchor_x + 444, gui_anchor_y + 146
 end
 
 local function header_point(gui_anchor_x, gui_anchor_y)
@@ -114,6 +114,30 @@ test('Save-button click commits and closes the window', function()
   assert_eq('SAMPLE TEXT', e.get_live().text, 'SAMPLE TEXT committed via Save button')
   assert_eq(false, e.get_gui():is_open(), 'window closed via Save button')
   assert_eq(nil, e.get_staged(), 'staging cleared via Save button')
+end)
+
+test('Save-button click self-closes then swallows the paired mouse-up (no game leak)', function()
+  -- Part E regression: echo.on_mouse must delegate to gui:handle_mouse
+  -- UNCONDITIONALLY, not gated on gui:is_open(). The Save down fires and closes the
+  -- window, so the paired up arrives with is_open() == false; the gui must still
+  -- consume it so the click never leaks through to the game. Against the old
+  -- is_open()-gated on_mouse, handle_mouse is never called on the up and this fails.
+  local e = fresh()
+  e.dispatch('config')
+  local sx, sy = save_point(100, 100)
+  assert_eq(true, e.on_mouse(1, sx, sy), 'save down consumed')
+  assert_eq(false, e.get_gui():is_open(), 'window closed on the save down')
+  assert_eq(true, e.on_mouse(2, sx, sy), 'paired up swallowed even though the window already closed')
+end)
+
+test('Discard-button click self-closes then swallows the paired mouse-up (no game leak)', function()
+  -- Part E regression for Discard (see the Save case above).
+  local e = fresh('{"text":"KeepMe","pos_x":0,"pos_y":0,"config_x":100,"config_y":100}')
+  e.dispatch('config')
+  local dx, dy = discard_point(100, 100)
+  assert_eq(true, e.on_mouse(1, dx, dy), 'discard down consumed')
+  assert_eq(false, e.get_gui():is_open(), 'window closed on the discard down')
+  assert_eq(true, e.on_mouse(2, dx, dy), 'paired up swallowed even though the window already closed')
 end)
 
 test('discard command leaves live text unchanged, hides, clears staging', function()
@@ -211,7 +235,9 @@ test('window is not draggable after save (no gui consumption when closed)', func
   local e = fresh()
   e.dispatch('config')
   e.dispatch('save')
-  -- With the window closed, gui:is_open() is false so on_mouse does not consume.
+  -- on_mouse delegates unconditionally, but handle_mouse returns false on a closed
+  -- window with nothing armed (a mtype-1 down, not the swallowed paired up), so the
+  -- click is not consumed.
   assert_eq(false, e.on_mouse(1, 150, 150), 'closed window does not block clicks')
 end)
 
