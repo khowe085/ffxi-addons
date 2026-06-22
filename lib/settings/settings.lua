@@ -128,25 +128,17 @@ local M = {}
 
 local _in_setup = false
 
--- Create dir and any missing parents using only windower.create_dir (no shell-out).
--- create_dir is not recursive, so walk the path and create each segment in turn.
-local function ensure_dir(dir)
+-- Create only the addon's own data/<Character> subtree beneath addon_path, which
+-- always exists. Never walk above addon_path. create_dir is not recursive, so
+-- create the parent ('data') first, then the leaf, with separators matching
+-- addon_path. No shell-out.
+local function ensure_char_dir(addon_path)
   if not (windower and windower.create_dir) then return end
-  -- Preserve the full leading separator run so UNC roots (\\server\share) and
-  -- POSIX absolute roots (/a/b) are not collapsed.
-  local prefix = dir:match('^([/\\]+)') or ''
-  local accum = prefix
-  for segment in dir:gmatch('[^/\\]+') do
-    if accum == '' or accum == prefix then
-      accum = accum .. segment
-    else
-      accum = accum .. '/' .. segment
-    end
-    -- Skip a bare-root accumulator (e.g. just '/' or '\\') with no segment yet.
-    if accum ~= prefix then
-      windower.create_dir(accum)
-    end
-  end
+  local sep  = addon_path:find('\\', 1, true) and '\\' or '/'
+  local base = addon_path:gsub('[/\\]+$', '')
+  local char = windower.ffxi.get_player().name
+  windower.create_dir(base .. sep .. 'data')
+  windower.create_dir(base .. sep .. 'data' .. sep .. char)
 end
 
 -- IO provider — swapped out in tests via M._set_io_provider
@@ -159,12 +151,7 @@ local io_provider = {
     return content
   end,
   write_file = function(path, content)
-    local f = io.open(path, 'w')
-    if not f then
-      local dir = path:match('^(.*)[/\\][^/\\]+$')
-      if dir then ensure_dir(dir) end
-      f = assert(io.open(path, 'w'), 'cannot open for writing: ' .. path)
-    end
+    local f = assert(io.open(path, 'w'), 'cannot open for writing: ' .. path)
     f:write(content)
     f:close()
   end,
@@ -213,7 +200,11 @@ function M.commit(staged, addon_path)
   assert(M.logged_in(), 'lib/settings: cannot commit settings — no character is logged in')
   local path    = settings_path(addon_path)
   local content = json.encode(staged)
-  io_provider.write_file(path, content)
+  local ok = pcall(io_provider.write_file, path, content)
+  if not ok then
+    ensure_char_dir(addon_path)
+    io_provider.write_file(path, content)
+  end
   _in_setup = false
   return deep_copy(staged)
 end

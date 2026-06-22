@@ -8,6 +8,8 @@ Provides a unified API for loading, staging, saving, and discarding per-characte
 
 Settings are stored as JSON at `<addon-root>/data/{CharacterName}/settings.json`. The library resolves the character name automatically from `windower.ffxi.get_player().name`.
 
+`commit` creates the per-character directory only when the first write fails (the folder is missing). It creates just the `data/` and `data/{CharacterName}/` folders beneath `addon_path` — which always exists — via `windower.create_dir` (separators matched to `addon_path`, no shell-out). It never walks above `addon_path` into system paths such as `C:\` or `Program Files`.
+
 ## API
 
 ```lua
