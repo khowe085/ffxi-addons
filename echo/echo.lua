@@ -51,6 +51,9 @@ function echo.cmd_set(text)
   if settings_lib.in_setup() then
     settings_lib.stage_set(staged_settings, 'text', text)
     refresh_display(text, staged_settings.pos_x, staged_settings.pos_y)
+    if gui then
+      gui:set_tabs(build_tabs(staged_settings))
+    end
   else
     live_settings.text = text
     live_settings = settings_lib.commit(live_settings, windower.addon_path)
