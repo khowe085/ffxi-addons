@@ -89,7 +89,7 @@ function echo.init()
       on_discard = echo.setup_close_discard,
       on_move    = stage_config_pos,
       pos        = { x = live_settings.config_x, y = live_settings.config_y },
-      size       = { width = 470, height = 310 },
+      size       = { width = 480, height = 110 },
     })
   end
   gui:set_draggable(false)
@@ -175,17 +175,17 @@ function echo.on_logout()
 end
 
 -- The element is moved live by Windower's built-in draggable (toggled via
--- element:draggable(true) in setup_open). on_mouse first lets the config window
--- consume any event over its bounds (so clicks never reach the game); only when
--- the cursor is outside the window does it PERSIST the overlay's final position
--- to staged settings on mouse-up, reading element:pos_x()/pos_y() rather than
--- the event x,y.
+-- element:draggable(true) in setup_open). on_mouse delegates EVERY event to the
+-- config window UNCONDITIONALLY (not gated on is_open) so the gui can consume the
+-- mouse-up that pairs with a click that closed the window: a Save/Discard click
+-- fires and hides on the DOWN, so the paired UP arrives after is_open() is already
+-- false and would otherwise leak to the game. handle_mouse returns false when the
+-- window is closed and nothing is armed, so unconditional delegation is safe; it
+-- returns true only to swallow that orphaned up. Only when the gui does not consume
+-- the event does on_mouse PERSIST the overlay's final position to staged settings
+-- on mouse-up, reading element:pos_x()/pos_y() rather than the event x,y.
 function echo.on_mouse(mtype, x, y, delta)
-  if gui and gui:is_open() then
-    if gui:handle_mouse(mtype, x, y, delta) then
-      return true
-    end
-  end
+  if gui and gui:handle_mouse(mtype, x, y, delta) then return true end
   if not settings_lib.in_setup() then return false end
   if mtype == 2 then
     echo.change_pos(element:pos_x(), element:pos_y())

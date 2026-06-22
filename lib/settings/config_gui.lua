@@ -9,20 +9,31 @@ local config_gui = {}
 
 local ROW_HEIGHT = 18
 local HEADER_ROWS = 1
-local FOOTER_ROWS = 1
+local FOOTER_ROWS = 2
 local TABBAR_ROWS = 1
 local BUTTON_W = 18
 
-local BTN_MARGIN = 4
 local BTN_GAP = 6
-local BTN_VPAD = 3
+local BTN_W = 96
 local BODY_PAD = 4
 local BODY_FONT = 'Consolas'
 local BODY_FONT_SIZE = 11
-local GLYPH_W = 7
+local BTN_FONT_SIZE = 11
+-- Deliberately-conservative pixel estimate of the rendered advance of one Consolas
+-- BODY_FONT_SIZE glyph in Windower. Erring HIGH means char-count clipping truncates
+-- with the ellipsis rather than overflowing body_w, honoring the "nothing overflows
+-- the frame" contract for every addon. Needs an in-game eyeball; the safe direction
+-- is high (truncate, never spill past the frame).
+local GLYPH_W = 9
+-- Estimated rendered glyph height for BTN_FONT_SIZE 11; used to vertically center
+-- the label within the (now two-row) button so the text sits mid-height.
+local BTN_FONT_HEIGHT = 16
 
-local DEFAULT_WIDTH = 400
-local DEFAULT_HEIGHT = 200
+-- BODY defaults: opts.size describes the scrollable body/content area, NOT the
+-- whole window. The chrome (header, optional tab bar, footer, scroll column) is
+-- laid out around the body and the total window is computed in layout().
+local DEFAULT_BODY_W = 400
+local DEFAULT_BODY_H = 200
 
 local function clamp(v, lo, hi)
   if v < lo then return lo end
@@ -82,8 +93,13 @@ function config_gui.new(opts)
     on_save     = opts.on_save,
     on_discard  = opts.on_discard,
     on_move     = opts.on_move,
-    width       = size.width or DEFAULT_WIDTH,
-    height      = size.height or DEFAULT_HEIGHT,
+    -- body_w/body_h are the source of truth (the addon-defined body area);
+    -- width/height are the TOTAL window dims, recomputed every layout() call
+    -- because the tab bar (and thus the chrome height) is dynamic.
+    body_w      = size.width or DEFAULT_BODY_W,
+    body_h      = size.height or DEFAULT_BODY_H,
+    width       = (size.width or DEFAULT_BODY_W) + BUTTON_W,
+    height      = (size.height or DEFAULT_BODY_H) + (HEADER_ROWS + FOOTER_ROWS) * ROW_HEIGHT,
     anchor_x    = pos.x or 0,
     anchor_y    = pos.y or 0,
     open        = false,
@@ -91,6 +107,11 @@ function config_gui.new(opts)
     dragging    = false,
     drag_dx     = 0,
     drag_dy     = 0,
+    -- A left click is a down (mtype 1) + up (mtype 2) pair. When the down over
+    -- Save/Discard closes the window, the paired up would otherwise hit the
+    -- `not state.open` guard and leak to the game. This flag remembers to swallow
+    -- exactly that one orphaned up so every event over the window stays consumed.
+    swallow_up  = false,
     tabs        = {},
     active      = 1,
     offsets     = {},
@@ -147,8 +168,24 @@ function config_gui.new(opts)
     text  = { font = BODY_FONT, size = BODY_FONT_SIZE },
     flags = { draggable = false },
   })
-  state.save    = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
-  state.discard = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
+  -- Footer button labels: explicit monospace font/size so glyph width is known
+  -- and predictable (GLYPH_W) and the text never renders at Windower's default
+  -- size and overflow the colored button background. A transparent text bg lets
+  -- the save_bg/discard_bg image show through behind the centered label.
+  state.save    = txt.new('', {
+    pos     = { x = 0, y = 0 },
+    text    = { font = BODY_FONT, size = BTN_FONT_SIZE },
+    bg      = { visible = false },
+    padding = 0,
+    flags   = { draggable = false },
+  })
+  state.discard = txt.new('', {
+    pos     = { x = 0, y = 0 },
+    text    = { font = BODY_FONT, size = BTN_FONT_SIZE },
+    bg      = { visible = false },
+    padding = 0,
+    flags   = { draggable = false },
+  })
   state.up      = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
   state.down    = txt.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
 
@@ -200,6 +237,15 @@ function config_gui.new(opts)
   end
 
   function gui:handle_mouse(mtype, x, y, delta)
+    -- A window-closing Save/Discard ran on the paired DOWN, so the matching UP
+    -- arrives after state.open is already false. Consume that one orphaned up
+    -- here (before the open guard) so it never leaks through to the game.
+    -- This swallows the next mouse-up regardless of intervening events; the OS
+    -- click down/up are adjacent in practice, so consuming the next up is safe.
+    if mtype == 2 and state.swallow_up then
+      state.swallow_up = false
+      return true
+    end
     if not state.open then return false end
 
     if state.dragging then
@@ -220,10 +266,12 @@ function config_gui.new(opts)
     if mtype == 1 then
       if point_in(state.rects.save, x, y) then
         if state.on_save then state.on_save() end
+        if not state.open then state.swallow_up = true end
         return true
       end
       if point_in(state.rects.discard, x, y) then
         if state.on_discard then state.on_discard() end
+        if not state.open then state.swallow_up = true end
         return true
       end
       if has_tab_bar(state) then
@@ -330,6 +378,7 @@ function config_gui.new(opts)
   function gui:show(tabs)
     install_tabs(state, tabs)
     state.open = true
+    state.swallow_up = false
     layout(state, state.anchor_x, state.anchor_y)
     if state.bg then state.bg:show() end
     if state.header_bg then state.header_bg:show() end
@@ -404,16 +453,16 @@ function active_tab(state)
 end
 
 function body_cols(state)
-  return math.max(1, math.floor((state.width - BUTTON_W - 2 * BODY_PAD) / GLYPH_W))
+  -- body_w already excludes the scroll-button column (it is chrome at the right),
+  -- so only the BODY_PAD insets are subtracted here.
+  return math.max(1, math.floor((state.body_w - 2 * BODY_PAD) / GLYPH_W))
 end
 
 function body_viewport(state)
   local top_rows = HEADER_ROWS + (has_tab_bar(state) and TABBAR_ROWS or 0)
   local x = state.anchor_x
   local y = state.anchor_y + top_rows * ROW_HEIGHT
-  local width = state.width - BUTTON_W
-  local height = state.height - (top_rows + FOOTER_ROWS) * ROW_HEIGHT
-  return { x = x, y = y, width = width, height = height }
+  return { x = x, y = y, width = state.body_w, height = state.body_h }
 end
 
 function has_tab_bar(state)
@@ -460,6 +509,15 @@ end
 function layout(state, anchor_x, anchor_y)
   state.anchor_x = anchor_x
   state.anchor_y = anchor_y
+
+  -- Derive the TOTAL window from the addon-defined body plus chrome. The tab bar
+  -- is dynamic (only present with >1 tab), so the totals are recomputed here on
+  -- every layout rather than fixed at construction. body_w/body_h are untouched,
+  -- so the body viewport stays constant no matter how tall the chrome grows.
+  local top_rows = HEADER_ROWS + (has_tab_bar(state) and TABBAR_ROWS or 0)
+  state.width  = state.body_w + BUTTON_W
+  state.height = top_rows * ROW_HEIGHT + state.body_h + FOOTER_ROWS * ROW_HEIGHT
+
   state.win.x = anchor_x
   state.win.y = anchor_y
   state.win.width = state.width
@@ -475,15 +533,18 @@ function layout(state, anchor_x, anchor_y)
     end
   end
 
-  local footer_y = state.height - FOOTER_ROWS * ROW_HEIGHT
-  local half_w = math.floor(state.width / 2)
-  local g = math.floor(BTN_GAP / 2)
-  local btn_y = footer_y + BTN_VPAD
-  local btn_h = ROW_HEIGHT - 2 * BTN_VPAD
-  local save_x = BTN_MARGIN
-  local save_w = (half_w - g) - BTN_MARGIN
-  local discard_x = half_w + g
-  local discard_w = (state.width - BTN_MARGIN) - (half_w + g)
+  -- One shared button rect per footer button drives the colored background, the
+  -- hit-rect, AND the centered label so all three always coincide. The pair is a
+  -- fixed BTN_W wide, right-aligned to the window edge (Save left of Discard),
+  -- and FOOTER_ROWS rows tall. The gap to the right frame edge equals the
+  -- Save<->Discard gap (BTN_GAP) so the pair sits symmetrically. The label is
+  -- centered both horizontally and vertically within that rect.
+  local body_top = top_rows * ROW_HEIGHT
+  local footer_y = body_top + state.body_h
+  local btn_y = footer_y
+  local btn_h = FOOTER_ROWS * ROW_HEIGHT
+  local discard_x = state.width - BTN_GAP - BTN_W
+  local save_x = discard_x - BTN_GAP - BTN_W
 
   if state.bg then
     state.bg:pos(anchor_x, anchor_y)
@@ -500,20 +561,20 @@ function layout(state, anchor_x, anchor_y)
   end
   if state.save_bg then
     state.save_bg:pos(anchor_x + save_x, anchor_y + btn_y)
-    state.save_bg:size(save_w, btn_h)
+    state.save_bg:size(BTN_W, btn_h)
   end
   if state.discard_bg then
     state.discard_bg:pos(anchor_x + discard_x, anchor_y + btn_y)
-    state.discard_bg:size(discard_w, btn_h)
+    state.discard_bg:size(BTN_W, btn_h)
   end
 
   set(state.panel, 'panel', 0, 0, state.width, state.height)
   set(state.header, 'header', 0, 0, state.width, ROW_HEIGHT)
 
   state.rects.tabs = {}
-  local top_rows = HEADER_ROWS
   if has_tab_bar(state) then
-    local label_w = math.floor((state.width - BUTTON_W) / #state.tabs)
+    -- Tab labels span the body width (state.width - BUTTON_W == state.body_w).
+    local label_w = math.floor(state.body_w / #state.tabs)
     local label_y = HEADER_ROWS * ROW_HEIGHT
     for i, label in ipairs(state.tab_labels) do
       local lx = (i - 1) * label_w
@@ -522,19 +583,33 @@ function layout(state, anchor_x, anchor_y)
       label._height = ROW_HEIGHT
       state.rects.tabs[i] = { x = anchor_x + lx, y = anchor_y + label_y, w = label_w, h = ROW_HEIGHT }
     end
-    top_rows = top_rows + TABBAR_ROWS
   end
 
-  local body_top = top_rows * ROW_HEIGHT
-  local body_h = state.height - (top_rows + FOOTER_ROWS) * ROW_HEIGHT
-  set(state.body, 'body', 0, body_top, state.width - BUTTON_W, body_h)
+  set(state.body, 'body', 0, body_top, state.body_w, state.body_h)
 
-  local half = math.floor(body_h / 2)
-  set(state.up, 'up', state.width - BUTTON_W, body_top, BUTTON_W, half)
-  set(state.down, 'down', state.width - BUTTON_W, body_top + half, BUTTON_W, body_h - half)
+  -- Scroll buttons are chrome at the right edge of the body (x = body_w), the
+  -- BUTTON_W-wide column that is added to body_w to form the total width.
+  local half = math.floor(state.body_h / 2)
+  set(state.up, 'up', state.body_w, body_top, BUTTON_W, half)
+  set(state.down, 'down', state.body_w, body_top + half, BUTTON_W, state.body_h - half)
 
-  set(state.save, 'save', save_x, btn_y, save_w, btn_h)
-  set(state.discard, 'discard', discard_x, btn_y, discard_w, btn_h)
+  -- Footer buttons: record the FULL-button hit-rect (the whole colored chip is
+  -- clickable) while positioning the label text at the horizontally AND
+  -- vertically centered offset inside that rect. set() would force the text to
+  -- the rect's top-left, so the text :pos() and the rect assignment are done
+  -- separately here. The label width is the known monospace glyph width times
+  -- the character count; the vertical center uses BTN_FONT_HEIGHT.
+  local place_button = function(el, name, bx)
+    local label = el:text()
+    local tx = bx + math.max(0, math.floor((BTN_W - GLYPH_W * #label) / 2))
+    local ty = btn_y + math.floor((btn_h - BTN_FONT_HEIGHT) / 2)
+    el:pos(anchor_x + tx, anchor_y + ty)
+    el._width = BTN_W
+    el._height = btn_h
+    state.rects[name] = { x = anchor_x + bx, y = anchor_y + btn_y, w = BTN_W, h = btn_h }
+  end
+  place_button(state.save, 'save', save_x)
+  place_button(state.discard, 'discard', discard_x)
 end
 
 function over_window(state, x, y)
@@ -592,9 +667,9 @@ function update_scroll_chrome(state)
 end
 
 function visible_rows(state)
-  local top_rows = HEADER_ROWS + (has_tab_bar(state) and TABBAR_ROWS or 0)
-  local body_h = state.height - (top_rows + FOOTER_ROWS) * ROW_HEIGHT
-  return math.max(1, math.floor(body_h / ROW_HEIGHT))
+  -- Independent of FOOTER_ROWS: the body is the addon-defined area, so growing
+  -- the footer never steals rows from it.
+  return math.max(1, math.floor(state.body_h / ROW_HEIGHT))
 end
 
 return config_gui

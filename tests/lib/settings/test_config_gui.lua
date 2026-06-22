@@ -65,23 +65,33 @@ local function center(el)
   return el._x + math.floor(el._width / 2), el._y + math.floor(el._height / 2)
 end
 
+-- Center of a layout hit-rect ({ x, y, w, h } from _rects_for_test()).
+local function rect_center(r)
+  return r.x + math.floor(r.w / 2), r.y + math.floor(r.h / 2)
+end
+
 -- ----
 
-test('construction honors size: window rect matches width/height', function()
+test('construction honors size: window rect matches body + chrome', function()
+  -- size describes the BODY area; the total window is body + chrome. For one tab
+  -- and body 320x160: total_width = 320+18 = 338, total_height = 18+160+36 = 214.
   local gui = make_gui({ pos = { x = 50, y = 60 }, size = { width = 320, height = 160 } })
   gui:show({ text_tab('General', 3) })
+  local tw, th = 320 + 18, 18 + 160 + 36
   -- A point at the far corner inside the window is consumed; just outside is not.
-  assert_true(gui:handle_mouse(3, 50 + 319, 60 + 159), 'inside far corner consumed')
-  assert_eq(false, gui:handle_mouse(3, 50 + 320, 60 + 160), 'just outside not consumed')
+  assert_true(gui:handle_mouse(3, 50 + tw - 1, 60 + th - 1), 'inside far corner consumed')
+  assert_eq(false, gui:handle_mouse(3, 50 + tw, 60 + th), 'just outside not consumed')
   assert_eq(false, gui:handle_mouse(3, 49, 60), 'just left of window not consumed')
 end)
 
 test('construction: footer sits within the window bottom', function()
   local gui, rec = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
   gui:show({ text_tab('General', 3) })
-  -- The footer row is the bottom row of the window; clicking it fires Save/Discard.
-  assert_true(gui:handle_mouse(1, 10, 152), 'click near bottom inside window consumed')
-  assert_eq(1, rec.save, 'bottom-left click hit the Save button (footer at window bottom)')
+  -- The footer band is the bottom of the window; clicking the Save button (now a
+  -- right-aligned fixed-width chip) fires Save.
+  local sx, sy = rect_center(gui:_rects_for_test().save)
+  assert_true(gui:handle_mouse(1, sx, sy), 'click on the Save button consumed')
+  assert_eq(1, rec.save, 'Save-button click hit Save (footer at window bottom)')
 end)
 
 test('show/hide/is_open', function()
@@ -98,10 +108,12 @@ test('images backdrop is created, sized to the window, and shown/hidden with it'
   local bg = gui:_bg_for_test()
   assert_true(bg ~= nil, 'backdrop created when images injected')
   gui:show({ text_tab('General', 2) })
+  -- size is the body; the backdrop spans the TOTAL window (body + chrome):
+  -- width 320+18 = 338, height 18+160+36 = 214.
   assert_eq(40, bg._x, 'backdrop at window x')
   assert_eq(50, bg._y, 'backdrop at window y')
-  assert_eq(320, bg._width, 'backdrop spans window width')
-  assert_eq(160, bg._height, 'backdrop spans window height')
+  assert_eq(338, bg._width, 'backdrop spans total window width')
+  assert_eq(214, bg._height, 'backdrop spans total window height')
   assert_eq(true, bg._visible, 'backdrop shown with window')
   gui:hide()
   assert_eq(false, bg._visible, 'backdrop hidden with window')
@@ -117,8 +129,9 @@ end)
 test('Save click fires on_save and returns true', function()
   local gui, rec = make_gui({ pos = { x = 0, y = 0 } })
   gui:show({ text_tab('General', 2) })
-  -- Save occupies left half of the footer row.
-  assert_true(gui:handle_mouse(1, 10, 152), 'save click consumed')
+  -- Save is the left chip of the right-aligned footer pair.
+  local sx, sy = rect_center(gui:_rects_for_test().save)
+  assert_true(gui:handle_mouse(1, sx, sy), 'save click consumed')
   assert_eq(1, rec.save, 'on_save fired once')
   assert_eq(0, rec.discard, 'discard not fired')
 end)
@@ -126,8 +139,9 @@ end)
 test('Discard click fires on_discard and returns true', function()
   local gui, rec = make_gui({ pos = { x = 0, y = 0 } })
   gui:show({ text_tab('General', 2) })
-  -- Discard occupies right half of the footer row.
-  assert_true(gui:handle_mouse(1, 250, 152), 'discard click consumed')
+  -- Discard is the right chip of the right-aligned footer pair.
+  local dx, dy = rect_center(gui:_rects_for_test().discard)
+  assert_true(gui:handle_mouse(1, dx, dy), 'discard click consumed')
   assert_eq(1, rec.discard, 'on_discard fired once')
   assert_eq(0, rec.save, 'save not fired')
 end)
@@ -234,7 +248,8 @@ test('an active drag keeps blocking even after the cursor leaves the window', fu
 end)
 
 test('text scrolling: slice respects visible_rows; buttons move the slice', function()
-  -- height 160: header(18)+footer(18) => body 124 => 6 rows. Provide 10 lines.
+  -- size is the BODY: body 160 => floor(160/18) = 8 rows (independent of the
+  -- footer). Provide 10 lines so rows 9-10 start hidden.
   local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
   local tab = text_tab('General', 10)
   gui:show({ tab })
@@ -245,8 +260,8 @@ test('text scrolling: slice respects visible_rows; buttons move the slice', func
     return gui:_body_text_for_test()
   end
   assert_true(has_line(body_text(), 'General line 1'), 'first line shown')
-  assert_true(has_line(body_text(), 'General line 6'), 'sixth line shown')
-  assert_eq(false, has_line(body_text(), 'General line 7'), 'seventh line hidden initially')
+  assert_true(has_line(body_text(), 'General line 8'), 'eighth line shown')
+  assert_eq(false, has_line(body_text(), 'General line 9'), 'ninth line hidden initially')
 
   gui:scroll(1)
   assert_true(has_line(body_text(), 'General line 2'), 'after scroll, line 2 top')
@@ -277,16 +292,19 @@ end)
 test('down/up scroll-button clicks advance and reverse the slice', function()
   local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
   gui:show({ text_tab('General', 10) })
-  -- Scroll buttons are on the right edge: x in [320-18, 320). Down is the lower half.
-  local x = 320 - 9
-  -- body spans y in [18, 142]; up=top half, down=bottom half.
-  assert_true(gui:handle_mouse(1, x, 30), 'up button click consumed')
+  -- The scroll column is chrome at the right edge of the body: x in [body_w,
+  -- body_w + BUTTON_W) == [320, 338). Down is the lower half.
+  local up = gui:_rects_for_test().up
+  local down = gui:_rects_for_test().down
+  local ux, uy = rect_center(up)
+  local dx, dy = rect_center(down)
+  assert_true(gui:handle_mouse(1, ux, uy), 'up button click consumed')
   -- already at top, slice unchanged
   assert_true(has_line(gui:_body_text_for_test(), 'General line 1'), 'still at top after up')
-  assert_true(gui:handle_mouse(1, x, 120), 'down button click consumed')
+  assert_true(gui:handle_mouse(1, dx, dy), 'down button click consumed')
   assert_true(has_line(gui:_body_text_for_test(), 'General line 2'), 'down advanced slice')
   assert_eq(false, has_line(gui:_body_text_for_test(), 'General line 1'), 'line 1 gone after down')
-  assert_true(gui:handle_mouse(1, x, 30), 'up button click consumed')
+  assert_true(gui:handle_mouse(1, ux, uy), 'up button click consumed')
   assert_true(has_line(gui:_body_text_for_test(), 'General line 1'), 'up reversed slice')
 end)
 
@@ -325,7 +343,8 @@ end)
 test('per-tab scroll offsets are independent', function()
   local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 200 } })
   gui:show({ text_tab('Alpha', 20), text_tab('Beta', 20) })
-  -- height 200, with tab bar: header+tabbar+footer = 54 => body 146 => 8 rows
+  -- size is the BODY: body 200 => floor(200/18) = 11 rows, independent of the
+  -- tab bar and footer.
   gui:scroll(3)
   assert_eq(false, has_line(gui:_body_text_for_test(), 'Alpha line 1'), 'alpha scrolled')
   gui:select_tab(2)
@@ -526,17 +545,67 @@ end)
 
 test('footer buttons are inset within the window', function()
   local anchor_x, anchor_y = 100, 100
-  local width, height = 320, 160
+  local body_w, body_h = 320, 160
   local gui = make_gui({ pos = { x = anchor_x, y = anchor_y }, images = images,
-    size = { width = width, height = height } })
+    size = { width = body_w, height = body_h } })
   gui:show({ text_tab('General', 3) })
+  -- size is the BODY; the total window is body + chrome.
+  local total_width = body_w + 18
+  local total_height = 18 + body_h + 36
   local rects = gui:_rects_for_test()
   local save, discard = rects.save, rects.discard
   assert_true(save.x > anchor_x, 'save left edge inside the window left border')
-  assert_true(discard.x + discard.w < anchor_x + width, 'discard right edge inside the window right border')
-  assert_true(save.y + save.h <= anchor_y + height, 'save bottom edge inside the window bottom border')
-  assert_true(discard.y + discard.h <= anchor_y + height, 'discard bottom edge inside the window bottom border')
+  assert_true(discard.x + discard.w < anchor_x + total_width, 'discard right edge inside the window right border')
+  assert_true(save.y + save.h <= anchor_y + total_height, 'save bottom edge inside the window bottom border')
+  assert_true(discard.y + discard.h <= anchor_y + total_height, 'discard bottom edge inside the window bottom border')
   assert_true(save.y > anchor_y, 'save top edge inside the window')
+  -- The pair is right-aligned with the right gap equal to the Save<->Discard gap
+  -- (BTN_GAP = 6), and each button is two rows tall (FOOTER_ROWS * ROW_HEIGHT = 36).
+  assert_eq(anchor_x + total_width - 6, discard.x + discard.w, 'discard right edge at the window minus BTN_GAP')
+  assert_eq(36, save.h, 'save button spans two rows (2 * ROW_HEIGHT)')
+  assert_eq(36, discard.h, 'discard button spans two rows (2 * ROW_HEIGHT)')
+  assert_true(save.x + save.w <= discard.x, 'Save sits fully left of Discard (no overlap, gap between)')
+end)
+
+test('body viewport equals size; footer is additive (does not shrink the body)', function()
+  -- The whole point of the body-based model: opts.size IS the body viewport,
+  -- and the chrome (incl. the two-row footer) is added around it. So the body
+  -- rect equals size exactly and the total height is size.height + chrome.
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 3) })
+  local body = gui:_rects_for_test().body
+  assert_eq(320, body.w, 'body viewport width equals size.width')
+  assert_eq(160, body.h, 'body viewport height equals size.height (NOT reduced by the footer)')
+  -- One tab => header(18) + body(160) + footer(36) = 214. Footer is purely
+  -- additive: removing it would only shrink the window, never the body.
+  local total_height = 18 + 160 + 36
+  assert_true(gui:handle_mouse(3, 10, total_height - 1), 'bottom edge of computed total window consumed')
+  assert_eq(false, gui:handle_mouse(3, 10, total_height), 'one past the computed total window not consumed')
+end)
+
+test('two tabs: tab bar adds one WINDOW row; body still equals size; footer additive', function()
+  -- Two tabs => tab bar present (top_rows = 2). The body still equals size; the
+  -- extra tab-bar row grows the WINDOW, not the body. With body 320x160 at anchor
+  -- (0,0): header(18) + tab bar(18) + body(160) + footer(36) => total_height 232,
+  -- which is exactly 18 (one ROW_HEIGHT) greater than the one-tab case (214) above,
+  -- proving the tab bar adds exactly one row to the WINDOW, not the body.
+  local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 320, height = 160 } })
+  gui:show({ text_tab('Alpha', 3), text_tab('Beta', 3) })
+  local rects = gui:_rects_for_test()
+  -- Body unaffected by the tab bar: still equals size exactly.
+  assert_eq(320, rects.body.w, 'body width equals size.width (unaffected by the tab bar)')
+  assert_eq(160, rects.body.h, 'body height equals size.height (unaffected by the tab bar)')
+  -- Body sits below header(18) + tab bar(18) = 2 * ROW_HEIGHT.
+  assert_eq(36, rects.body.y, 'body top below header + tab bar (2 * ROW_HEIGHT)')
+  -- Footer (2 rows = 36) sits directly below the body.
+  assert_eq(196, rects.save.y, 'save top below body (36 + body 160)')
+  assert_eq(36, rects.save.h, 'save spans two rows (2 * ROW_HEIGHT)')
+  assert_eq(232, rects.save.y + rects.save.h, 'save bottom flush with the window bottom (== total_height)')
+  -- total_height = 2*18 (header+tab bar) + 160 (body) + 36 (footer) = 232;
+  -- total_width = 320 (body) + 18 (BUTTON_W) = 338.
+  local total_width, total_height = 320 + 18, 2 * 18 + 160 + 36
+  assert_true(gui:handle_mouse(3, total_width - 1, total_height - 1), 'inside far corner consumed')
+  assert_eq(false, gui:handle_mouse(3, total_width, total_height), 'just outside far corner not consumed')
 end)
 
 test('native dragging disabled on all chrome', function()
@@ -645,8 +714,8 @@ test('monospace body clip: long line truncated with ellipsis, short line verbati
 end)
 
 test('narrow window: body_cols clamps to >= 1 and renders a single clipped line', function()
-  -- At width 30, (width - BUTTON_W - 2*BODY_PAD) is small/negative, so body_cols
-  -- must clamp to >= 1 and clip_line must take its cols <= #ELLIPSIS branch.
+  -- At body width 30, (body_w - 2*BODY_PAD) is small, so body_cols must clamp to
+  -- >= 1 and clip_line must take its cols <= #ELLIPSIS branch.
   local gui = make_gui({ pos = { x = 0, y = 0 }, size = { width = 30, height = 160 } })
   local cols = gui:_body_cols_for_test()
   assert_true(cols >= 1, 'body_cols clamps to at least 1 (got ' .. cols .. ')')
@@ -660,6 +729,79 @@ test('narrow window: body_cols clamps to >= 1 and renders a single clipped line'
   assert_true(#body >= 1, 'clipped line is non-empty')
 end)
 
+test('footer buttons fill the footer band height and the whole height is clickable', function()
+  -- Bugs 1 & 2: the colored chip / hit-rect span the full footer band
+  -- (FOOTER_ROWS * ROW_HEIGHT = 36), so the label cannot spill outside a
+  -- clickable strip. Footer band (one tab) is y in [178, 214).
+  local gui, rec = make_gui({ pos = { x = 0, y = 0 }, images = images,
+    size = { width = 320, height = 160 } })
+  gui:show({ text_tab('General', 3) })
+  local save = gui:_rects_for_test().save
+  assert_eq(36, save.h, 'save hit-rect spans the full footer band (2 * ROW_HEIGHT)')
+  assert_eq(178, save.y, 'save top at the footer band top')
+  assert_eq(214, save.y + save.h, 'save bottom flush with the window bottom')
+  -- A click near the TOP and near the BOTTOM of the button both fire Save.
+  local mid_x = save.x + math.floor(save.w / 2)
+  assert_true(gui:handle_mouse(1, mid_x, save.y + 1), 'click near footer top consumed')
+  assert_eq(1, rec.save, 'top-of-button click fired Save')
+  assert_true(gui:handle_mouse(1, mid_x, save.y + save.h - 1), 'click near footer bottom consumed')
+  assert_eq(2, rec.save, 'bottom-of-button click fired Save')
+end)
+
+test('a window-closing Save swallows the paired mouse-up so it never leaks to the game', function()
+  -- Bug 3: a left click is down(1)+up(2). on_save runs on the down and closes the
+  -- window; the paired up must still be consumed, not leak through to the game.
+  local gui
+  local saved = 0
+  gui = config_gui.new({
+    texts   = texts,
+    title   = 'Closer',
+    on_save = function()
+      saved = saved + 1
+      gui:hide()
+    end,
+    pos     = { x = 0, y = 0 },
+    size    = { width = 320, height = 160 },
+  })
+  gui:show({ text_tab('General', 2) })
+  local sx, sy = rect_center(gui:_rects_for_test().save)
+  assert_true(gui:handle_mouse(1, sx, sy), 'save down consumed')
+  assert_eq(1, saved, 'on_save fired once on the down')
+  assert_eq(false, gui:is_open(), 'window closed by on_save')
+  -- The window is now closed, but the paired up at the same coords is swallowed.
+  assert_true(gui:handle_mouse(2, sx, sy), 'paired up swallowed after window-closing save')
+  -- Only that one up is swallowed: a second stray up is no longer consumed.
+  assert_eq(false, gui:handle_mouse(2, sx, sy), 'subsequent stray up not consumed')
+end)
+
+test('a window-closing Discard swallows the paired mouse-up so it never leaks to the game', function()
+  local gui
+  local discarded = 0
+  gui = config_gui.new({
+    texts      = texts,
+    title      = 'Closer',
+    on_discard = function()
+      discarded = discarded + 1
+      gui:hide()
+    end,
+    pos        = { x = 0, y = 0 },
+    size       = { width = 320, height = 160 },
+  })
+  gui:show({ text_tab('General', 2) })
+  local dx, dy = rect_center(gui:_rects_for_test().discard)
+  assert_true(gui:handle_mouse(1, dx, dy), 'discard down consumed')
+  assert_eq(1, discarded, 'on_discard fired once on the down')
+  assert_eq(false, gui:is_open(), 'window closed by on_discard')
+  assert_true(gui:handle_mouse(2, dx, dy), 'paired up swallowed after window-closing discard')
+  assert_eq(false, gui:handle_mouse(2, dx, dy), 'subsequent stray up not consumed')
+end)
+
+test('a never-opened gui consumes no stray mouse-up', function()
+  -- swallow_up starts false, so a fresh gui returns false for an unpaired up.
+  local gui = make_gui({ pos = { x = 0, y = 0 } })
+  assert_eq(false, gui:handle_mouse(2, 10, 152), 'never-shown gui does not consume a stray up')
+end)
+
 test('a gui built with no callbacks survives clicks and drag without error', function()
   local gui = config_gui.new({
     texts = texts,
@@ -669,8 +811,10 @@ test('a gui built with no callbacks survives clicks and drag without error', fun
   })
   gui:set_draggable(true)
   gui:show({ text_tab('General', 2) })
-  assert_true(gui:handle_mouse(1, 10, 152), 'save click consumed (no on_save)')
-  assert_true(gui:handle_mouse(1, 200, 152), 'discard click consumed (no on_discard)')
+  local sx, sy = rect_center(gui:_rects_for_test().save)
+  local dx, dy = rect_center(gui:_rects_for_test().discard)
+  assert_true(gui:handle_mouse(1, sx, sy), 'save click consumed (no on_save)')
+  assert_true(gui:handle_mouse(1, dx, dy), 'discard click consumed (no on_discard)')
   gui:handle_mouse(1, 10, 5)   -- start drag on header
   gui:handle_mouse(0, 40, 45)  -- move
   assert_true(gui:handle_mouse(2, 40, 45), 'release consumed (no on_move)')
