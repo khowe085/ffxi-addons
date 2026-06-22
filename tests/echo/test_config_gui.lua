@@ -44,17 +44,18 @@ local function fresh(file)
   return e
 end
 
--- Echo opens its config window at config_x/config_y (default 100,100) with
--- size 470x310. The footer is the bottom row, with inset button-shaped Save and
--- Discard rects: Save on the left half, Discard on the right half (mid-line at
--- half_w = 235). The button y-band sits inside the footer row near y = 300.
--- Header row is the top 18px.
+-- Echo's `size` is the BODY area (380x110); the total window is body + chrome.
+-- One tab => total_width = 380+18 = 398, total_height = 18+110+36 = 164. The
+-- footer band is the bottom two rows, y in [128,164) (center y = 146), holding a
+-- right-aligned fixed-width Save/Discard pair (BTN_W = 96): Discard at x [298,394)
+-- (center 346), Save just left of it at x [196,292) (center 244). Header row is
+-- the top 18px.
 local function save_point(gui_anchor_x, gui_anchor_y)
-  return gui_anchor_x + 10, gui_anchor_y + 300
+  return gui_anchor_x + 244, gui_anchor_y + 146
 end
 
 local function discard_point(gui_anchor_x, gui_anchor_y)
-  return gui_anchor_x + 350, gui_anchor_y + 300
+  return gui_anchor_x + 346, gui_anchor_y + 146
 end
 
 local function header_point(gui_anchor_x, gui_anchor_y)

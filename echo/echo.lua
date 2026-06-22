@@ -89,7 +89,7 @@ function echo.init()
       on_discard = echo.setup_close_discard,
       on_move    = stage_config_pos,
       pos        = { x = live_settings.config_x, y = live_settings.config_y },
-      size       = { width = 470, height = 310 },
+      size       = { width = 380, height = 110 },
     })
   end
   gui:set_draggable(false)

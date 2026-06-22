@@ -119,7 +119,7 @@ local gui = config_gui.new({
   on_discard = discard_fn,     -- Discard button / `discard` command
   on_move    = function(x, y) end, -- window drag-release → stage the new anchor
   pos        = { x = 0, y = 0 },        -- initial window anchor (load from settings)
-  size       = { width = 320, height = 160 }, -- addon-defined window size (px)
+  size       = { width = 320, height = 160 }, -- addon-defined BODY/content area (px); window = body + chrome
 })
 ```
 
@@ -144,6 +144,10 @@ when the event is over the window so the addon blocks it from the game) · `gui:
 
 ### Behavior contract
 
+- The addon defines the **body/content area** via `size`; the chrome (header, optional tab bar,
+  footer, right-side scroll column) wraps it, and the **total window = body + chrome**. The body
+  is constant — growing the chrome (e.g. a taller footer) grows the window, never the body — and
+  the body **scrolls** when content overflows the body area (up/down buttons on the right).
 - The chrome draws visually distinct header and footer bands plus button-styled Save/Discard hit
   targets inset in the footer (via the injected `images`); the body is clipped to the frame and
   monospace text tabs truncate over-long lines with an ellipsis so nothing overflows the window.

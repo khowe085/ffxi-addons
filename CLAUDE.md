@@ -69,7 +69,9 @@ for the `config_gui` API.
   only one). Each tab is either a **text tab** (`{ title, lines }`, scrolled by the helper) or a
   **custom tab** (`{ title, render, on_mouse, hide }`) that draws an interactive body into a
   provided viewport — supports image-rich, clickable GUIs
-- The addon defines the **window size**; the body **scrolls** within it (up/down buttons on the right)
+- The addon defines the **body/content area** via `size`; the chrome (header, tab bar, footer, scroll
+  column) wraps it and the **total window = body + chrome**; the body **scrolls** when content
+  overflows the body area (up/down buttons on the right)
 - `config` while the window is open is a **no-op**
 - **Mouse events over the open window must be consumed** so clicks never pass through to the game
 - GUI open/closed state is ephemeral — never persist it

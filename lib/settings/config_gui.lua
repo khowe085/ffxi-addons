@@ -9,22 +9,27 @@ local config_gui = {}
 
 local ROW_HEIGHT = 18
 local HEADER_ROWS = 1
-local FOOTER_ROWS = 1
+local FOOTER_ROWS = 2
 local TABBAR_ROWS = 1
 local BUTTON_W = 18
 
 local BTN_MARGIN = 4
 local BTN_GAP = 6
+local BTN_W = 96
 local BODY_PAD = 4
 local BODY_FONT = 'Consolas'
 local BODY_FONT_SIZE = 11
 local BTN_FONT_SIZE = 11
 local GLYPH_W = 7
--- Vertical inset of the centered label text within its full-height button.
-local BTN_TEXT_INSET = 2
+-- Estimated rendered glyph height for BTN_FONT_SIZE 11; used to vertically center
+-- the label within the (now two-row) button so the text sits mid-height.
+local BTN_FONT_HEIGHT = 16
 
-local DEFAULT_WIDTH = 400
-local DEFAULT_HEIGHT = 200
+-- BODY defaults: opts.size describes the scrollable body/content area, NOT the
+-- whole window. The chrome (header, optional tab bar, footer, scroll column) is
+-- laid out around the body and the total window is computed in layout().
+local DEFAULT_BODY_W = 400
+local DEFAULT_BODY_H = 200
 
 local function clamp(v, lo, hi)
   if v < lo then return lo end
@@ -84,8 +89,13 @@ function config_gui.new(opts)
     on_save     = opts.on_save,
     on_discard  = opts.on_discard,
     on_move     = opts.on_move,
-    width       = size.width or DEFAULT_WIDTH,
-    height      = size.height or DEFAULT_HEIGHT,
+    -- body_w/body_h are the source of truth (the addon-defined body area);
+    -- width/height are the TOTAL window dims, recomputed every layout() call
+    -- because the tab bar (and thus the chrome height) is dynamic.
+    body_w      = size.width or DEFAULT_BODY_W,
+    body_h      = size.height or DEFAULT_BODY_H,
+    width       = (size.width or DEFAULT_BODY_W) + BUTTON_W,
+    height      = (size.height or DEFAULT_BODY_H) + (HEADER_ROWS + FOOTER_ROWS) * ROW_HEIGHT,
     anchor_x    = pos.x or 0,
     anchor_y    = pos.y or 0,
     open        = false,
@@ -439,16 +449,16 @@ function active_tab(state)
 end
 
 function body_cols(state)
-  return math.max(1, math.floor((state.width - BUTTON_W - 2 * BODY_PAD) / GLYPH_W))
+  -- body_w already excludes the scroll-button column (it is chrome at the right),
+  -- so only the BODY_PAD insets are subtracted here.
+  return math.max(1, math.floor((state.body_w - 2 * BODY_PAD) / GLYPH_W))
 end
 
 function body_viewport(state)
   local top_rows = HEADER_ROWS + (has_tab_bar(state) and TABBAR_ROWS or 0)
   local x = state.anchor_x
   local y = state.anchor_y + top_rows * ROW_HEIGHT
-  local width = state.width - BUTTON_W
-  local height = state.height - (top_rows + FOOTER_ROWS) * ROW_HEIGHT
-  return { x = x, y = y, width = width, height = height }
+  return { x = x, y = y, width = state.body_w, height = state.body_h }
 end
 
 function has_tab_bar(state)
@@ -495,6 +505,15 @@ end
 function layout(state, anchor_x, anchor_y)
   state.anchor_x = anchor_x
   state.anchor_y = anchor_y
+
+  -- Derive the TOTAL window from the addon-defined body plus chrome. The tab bar
+  -- is dynamic (only present with >1 tab), so the totals are recomputed here on
+  -- every layout rather than fixed at construction. body_w/body_h are untouched,
+  -- so the body viewport stays constant no matter how tall the chrome grows.
+  local top_rows = HEADER_ROWS + (has_tab_bar(state) and TABBAR_ROWS or 0)
+  state.width  = state.body_w + BUTTON_W
+  state.height = top_rows * ROW_HEIGHT + state.body_h + FOOTER_ROWS * ROW_HEIGHT
+
   state.win.x = anchor_x
   state.win.y = anchor_y
   state.win.width = state.width
@@ -511,21 +530,16 @@ function layout(state, anchor_x, anchor_y)
   end
 
   -- One shared button rect per footer button drives the colored background, the
-  -- hit-rect, AND the centered label so all three always coincide. The buttons
-  -- fill the full footer ROW_HEIGHT (not a 12px inset) keeping only the
-  -- horizontal BTN_MARGIN/BTN_GAP insets, so the visible blue/red strip is the
-  -- whole clickable area and the label never spills past the colored chip.
-  -- btn_y = footer_y keeps the top edge below the window top (footer_y > 0) and
-  -- the bottom edge (btn_y + btn_h) flush with, never past, the window bottom.
-  local footer_y = state.height - FOOTER_ROWS * ROW_HEIGHT
-  local half_w = math.floor(state.width / 2)
-  local g = math.floor(BTN_GAP / 2)
+  -- hit-rect, AND the centered label so all three always coincide. The pair is a
+  -- fixed BTN_W wide, right-aligned to the window edge (Save left of Discard),
+  -- and FOOTER_ROWS rows tall. The label is centered both horizontally and
+  -- vertically within that rect.
+  local body_top = top_rows * ROW_HEIGHT
+  local footer_y = body_top + state.body_h
   local btn_y = footer_y
   local btn_h = FOOTER_ROWS * ROW_HEIGHT
-  local save_x = BTN_MARGIN
-  local save_w = (half_w - g) - BTN_MARGIN
-  local discard_x = half_w + g
-  local discard_w = (state.width - BTN_MARGIN) - (half_w + g)
+  local discard_x = state.width - BTN_MARGIN - BTN_W
+  local save_x = discard_x - BTN_GAP - BTN_W
 
   if state.bg then
     state.bg:pos(anchor_x, anchor_y)
@@ -542,20 +556,20 @@ function layout(state, anchor_x, anchor_y)
   end
   if state.save_bg then
     state.save_bg:pos(anchor_x + save_x, anchor_y + btn_y)
-    state.save_bg:size(save_w, btn_h)
+    state.save_bg:size(BTN_W, btn_h)
   end
   if state.discard_bg then
     state.discard_bg:pos(anchor_x + discard_x, anchor_y + btn_y)
-    state.discard_bg:size(discard_w, btn_h)
+    state.discard_bg:size(BTN_W, btn_h)
   end
 
   set(state.panel, 'panel', 0, 0, state.width, state.height)
   set(state.header, 'header', 0, 0, state.width, ROW_HEIGHT)
 
   state.rects.tabs = {}
-  local top_rows = HEADER_ROWS
   if has_tab_bar(state) then
-    local label_w = math.floor((state.width - BUTTON_W) / #state.tabs)
+    -- Tab labels span the body width (state.width - BUTTON_W == state.body_w).
+    local label_w = math.floor(state.body_w / #state.tabs)
     local label_y = HEADER_ROWS * ROW_HEIGHT
     for i, label in ipairs(state.tab_labels) do
       local lx = (i - 1) * label_w
@@ -564,33 +578,33 @@ function layout(state, anchor_x, anchor_y)
       label._height = ROW_HEIGHT
       state.rects.tabs[i] = { x = anchor_x + lx, y = anchor_y + label_y, w = label_w, h = ROW_HEIGHT }
     end
-    top_rows = top_rows + TABBAR_ROWS
   end
 
-  local body_top = top_rows * ROW_HEIGHT
-  local body_h = state.height - (top_rows + FOOTER_ROWS) * ROW_HEIGHT
-  set(state.body, 'body', 0, body_top, state.width - BUTTON_W, body_h)
+  set(state.body, 'body', 0, body_top, state.body_w, state.body_h)
 
-  local half = math.floor(body_h / 2)
-  set(state.up, 'up', state.width - BUTTON_W, body_top, BUTTON_W, half)
-  set(state.down, 'down', state.width - BUTTON_W, body_top + half, BUTTON_W, body_h - half)
+  -- Scroll buttons are chrome at the right edge of the body (x = body_w), the
+  -- BUTTON_W-wide column that is added to body_w to form the total width.
+  local half = math.floor(state.body_h / 2)
+  set(state.up, 'up', state.body_w, body_top, BUTTON_W, half)
+  set(state.down, 'down', state.body_w, body_top + half, BUTTON_W, state.body_h - half)
 
   -- Footer buttons: record the FULL-button hit-rect (the whole colored chip is
-  -- clickable) while positioning the label text at a horizontally centered offset
-  -- inside that rect. set() would force the text to the rect's top-left, so the
-  -- text :pos() and the rect assignment are done separately here. The label width
-  -- is the known monospace glyph width times the character count.
-  local place_button = function(el, name, bx, bw)
+  -- clickable) while positioning the label text at the horizontally AND
+  -- vertically centered offset inside that rect. set() would force the text to
+  -- the rect's top-left, so the text :pos() and the rect assignment are done
+  -- separately here. The label width is the known monospace glyph width times
+  -- the character count; the vertical center uses BTN_FONT_HEIGHT.
+  local place_button = function(el, name, bx)
     local label = el:text()
-    local text_w = GLYPH_W * #label
-    local tx = bx + math.max(0, math.floor((bw - text_w) / 2))
-    el:pos(anchor_x + tx, anchor_y + btn_y + BTN_TEXT_INSET)
-    el._width = bw
+    local tx = bx + math.max(0, math.floor((BTN_W - GLYPH_W * #label) / 2))
+    local ty = btn_y + math.floor((btn_h - BTN_FONT_HEIGHT) / 2)
+    el:pos(anchor_x + tx, anchor_y + ty)
+    el._width = BTN_W
     el._height = btn_h
-    state.rects[name] = { x = anchor_x + bx, y = anchor_y + btn_y, w = bw, h = btn_h }
+    state.rects[name] = { x = anchor_x + bx, y = anchor_y + btn_y, w = BTN_W, h = btn_h }
   end
-  place_button(state.save, 'save', save_x, save_w)
-  place_button(state.discard, 'discard', discard_x, discard_w)
+  place_button(state.save, 'save', save_x)
+  place_button(state.discard, 'discard', discard_x)
 end
 
 function over_window(state, x, y)
@@ -648,9 +662,9 @@ function update_scroll_chrome(state)
 end
 
 function visible_rows(state)
-  local top_rows = HEADER_ROWS + (has_tab_bar(state) and TABBAR_ROWS or 0)
-  local body_h = state.height - (top_rows + FOOTER_ROWS) * ROW_HEIGHT
-  return math.max(1, math.floor(body_h / ROW_HEIGHT))
+  -- Independent of FOOTER_ROWS: the body is the addon-defined area, so growing
+  -- the footer never steals rows from it.
+  return math.max(1, math.floor(state.body_h / ROW_HEIGHT))
 end
 
 return config_gui
