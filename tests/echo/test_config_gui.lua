@@ -180,6 +180,33 @@ test('overlay drag-release updates staged pos and refreshes body', function()
   assert_eq(true, e.get_gui():is_open(), 'window remains open after overlay drag')
 end)
 
+test('cmd_set inside setup refreshes the config body', function()
+  local e = fresh()
+  e.dispatch('config')
+  e.cmd_set('NewText')
+  local body = e.get_gui():_body_text_for_test()
+  local found = false
+  for line in (body .. '\n'):gmatch('([^\n]*)\n') do
+    if line == 'Text:  NewText' then found = true end
+  end
+  assert_true(found, 'config body shows the new text after cmd_set')
+  assert_eq(true, e.get_gui():is_open(), 'window remains open after cmd_set')
+end)
+
+test('cmd_clear inside setup refreshes the config body', function()
+  local e = fresh()
+  e.dispatch('config')
+  e.cmd_set('X')
+  e.cmd_clear()
+  local body = e.get_gui():_body_text_for_test()
+  local found = false
+  for line in (body .. '\n'):gmatch('([^\n]*)\n') do
+    if line == 'Text:  ' then found = true end
+  end
+  assert_true(found, 'config body shows empty text after cmd_clear')
+  assert_eq(true, e.get_gui():is_open(), 'window remains open after cmd_clear')
+end)
+
 test('config-window drag stages config_x/config_y; save persists; reopen at new anchor', function()
   local e = fresh()
   e.dispatch('config')
