@@ -116,28 +116,15 @@ Reference: `tests/echo/test_lifecycle.lua`. In-game reload: `//lua r <addon-name
 
 ## Source Control
 
-GitHub (`khowe085/ffxi-addons`), default branch `main`. Use `gh` CLI. All work lands via PR — never commit directly to `main`.
-
-This repo follows git-flow: every work branch is **squash-merged** into `main`. When `main` advances mid-flight, sync it **into** the work branch with a no-fast-forward merge (`git fetch origin && git merge --no-ff origin/main`) — **never rebase** a work branch. Rebasing rewrites history and forces force-pushes across worktrees, and the final squash flattens the intermediate merge commits anyway, so rebase buys nothing.
+GitHub (`khowe085/ffxi-addons`), default branch `main`. Use `gh` CLI.
 
 ## Development Workflow
 
-> **MANDATORY — NO EXCEPTIONS.** This workflow applies to every change regardless of size. Do not edit any addon source file, test, or documentation until step 2 is complete and the user has approved the plan. Skipping or shortcutting any step wastes the user's tokens and is forbidden.
+Follows the global session worktree workflow defined in `~/.claude/CLAUDE.md`. Agent roles for this repo:
 
-**Every session runs in its own git worktree** under `.claude/worktrees/<plan-name>/` (gitignored), checked out on a session branch `feat/<plan-name>` cut from freshly-fetched `origin/main`. This is what lets multiple planning and/or implementation sessions run at once without clobbering a shared working branch — each worktree has its own HEAD, index, and working directory. **Never check out `main` in a session worktree** (a branch can be checked out in only one worktree at a time); branch off `origin/main` and leave the primary clone parked on `main` as the canonical reference. The plan (`.planning/<plan-name>.md`) and its **Tasks** section — which defines the parallel work units — are authored on the session branch. To pick up PRs merged to `main` mid-flight, sync them **into** the session branch (`git merge --no-ff origin/main`); never rebase (see Source Control). The branch exists only to become the PR, and is squash-merged.
-
-| # | Who | Action |
-|---|-----|--------|
-| 1 | **Orchestrator** | `git fetch origin`; create the session worktree + branch — `git worktree add -b feat/<plan-name> .claude/worktrees/<plan-name> origin/main`. All later steps run inside it. |
-| 2 | **Plan agent** | Writes `.planning/<plan-name>.md` on the session branch; **STOP and wait for user approval** |
-| 3 | **Orchestrator** | Decomposes into tasks; updates **Tasks** section in plan |
-| 4 | **lua-dev** (per task, parallel) | Isolated worktree off the session branch; implements feature + tests |
-| 5 | **lua-reviewer** (per task worktree) | Reviews for correctness, style, test coverage |
-| 6 | **lua-dev** (per task worktree) | Resolves all reviewer issues before proceeding |
-| 7 | **lua-QA** | Runs full test suite; failures loop back to step 4 |
-| 8 | — | Merge task work onto `feat/<plan-name>`; remove the per-task worktree (`git worktree remove`) |
-| 9 | **docs agent** | Updates `README.md` for each modified addon |
-| 10 | **Orchestrator** | Push `feat/<plan-name>`; open PR (squash-merge); PR description = release notes |
-| 11 | **Orchestrator** | On the user's **"merged"** confirmation: `git worktree remove .claude/worktrees/<plan-name>` → `git branch -D feat/<plan-name>` → `git worktree prune` |
-
-**Rules**: applies to all work (features and bugfixes alike); no shortcuts; no inline edits; sessions never check out `main` or rebase the work branch — sync `main` in via `--no-ff` merge only; per-task worktrees are removed after their merge and the session worktree after the user confirms the PR merged; PR opened only after lua-QA approves.
+| Global role | This repo |
+|-------------|-----------|
+| dev-agent | `lua-dev` |
+| reviewer-agent | `lua-reviewer` |
+| qa-agent | `lua-qa` |
+| docs-agent | General Claude agent — updates `README.md` for each modified addon |
