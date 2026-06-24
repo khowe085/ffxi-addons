@@ -1,0 +1,3 @@
+[submodule "xivcrossbar"]
+	path = xivcrossbar
+	url = https://github.com/khowe085/xivcrossbar
