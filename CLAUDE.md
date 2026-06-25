@@ -24,6 +24,10 @@ tests/
 
 All addons **must** use `lib/settings` for configuration management. Direct use of the Windower `config` library is not allowed. See [lib/settings/CLAUDE.md](lib/settings/CLAUDE.md) for the full API.
 
+# Window 4 Documentation
+- windower commands: https://docs.windower.net/commands/
+- lua addons: https://github.com/Windower/Lua/wiki/
+
 ## Windower 4 Conventions
 
 - **Lua version**: 5.1
