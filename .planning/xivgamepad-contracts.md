@@ -148,6 +148,12 @@ only; directory creation via `windower.create_dir` anchored at the absolute `add
 (separators matched to `addon_path`, never walking above it). Lines carry `os.date` timestamps.
 Depends only on `windower` + `files` (leaf module — no addon requires).
 
+> **Files-API path rule (all modules):** the real Windower `files` library prefixes
+> `windower.addon_path` onto every path itself — paths passed to `files.new`/`files.exists` must be
+> **addon-relative** (`data/debug.log`, `data/{Char}/shared.json`), never absolute. Only
+> `windower.create_dir` takes the **absolute** addon-anchored path. Tests assert relative keys for
+> file content and absolute separator-matched strings for created dirs.
+
 ## Action module — `xivgamepad.action`
 
 ```lua
