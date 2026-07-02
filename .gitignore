@@ -1,9 +1,1 @@
-# Claude Code local settings (personal, not shared)
-.claude/settings.local.json
-
-# Claude memory (personal, generated at runtime)
-.claude/memory/
-.claude/worktrees/
-
-# Windower addon runtime data
-data/
+luac.out
