@@ -115,6 +115,30 @@ test('mount binding sends input /mount', function()
   assert_eq('input /mount "Chocobo"', last_command())
 end)
 
+-- Order matters: this must run before the test below registers a
+-- mount_roulette action on the shared instance (there is no unregister).
+test('mount Mount Roulette unregistered falls through logged, without raising', function()
+  reset()
+  local ok = pcall(action.execute_binding, { type = 'mount', action = 'Mount Roulette' }, {})
+  assert(ok, 'execute_binding must not raise while mount_roulette is unregistered')
+  assert_eq(1, #windower._commands, 'exactly the raw fall-through command')
+  assert_eq('mount_roulette', last_command(), 'no /mount command may be synthesized')
+  assert(#log_stub._debug > 0, 'the raw-command fall-through should be logged')
+end)
+
+test('mount Mount Roulette dispatches the mount_roulette system action with ctx', function()
+  reset()
+  local seen_ctx = nil
+  action.register_action('mount_roulette', {
+    description = 'recording stub (main owns the real registration)',
+    run = function(run_ctx) seen_ctx = run_ctx end,
+  })
+  local ctx = { player_state = { is_mounted = false } }
+  action.execute_binding({ type = 'mount', action = 'Mount Roulette' }, ctx)
+  assert_eq(ctx, seen_ctx, 'ctx must be forwarded to the system action')
+  assert_eq(0, #windower._commands, 'no /mount command may be sent for Mount Roulette')
+end)
+
 test('ta binding sends input /ta with target', function()
   reset()
   action.execute_binding({ type = 'ta', target = 'stnpc' }, {})
@@ -239,6 +263,16 @@ test('describe on ct/ex returns the alias or raw action', function()
   assert_eq('/heal',  action._get_type('ct').describe({ type = 'ct', action = '/heal' }))
   assert_eq('Rest',   action._get_type('ct').describe({ type = 'ct', action = '/heal', alias = 'Rest' }))
   assert_eq('xhb_l',  action._get_type('ex').describe({ type = 'ex', action = 'xhb_l' }))
+end)
+
+test('describe on mount returns Mount Roulette for the roulette binding', function()
+  local mount = action._get_type('mount')
+  assert_eq('Mount Roulette', mount.describe({ type = 'mount', action = 'Mount Roulette' }))
+  assert_eq('Chocobo',        mount.describe({ type = 'mount', action = 'Chocobo' }))
+  assert_eq('Birdy',          mount.describe({ type = 'mount', action = 'Chocobo', alias = 'Birdy' }))
+  assert_eq('Surprise Me',
+    mount.describe({ type = 'mount', action = 'Mount Roulette', alias = 'Surprise Me' }),
+    'a hand-edited alias is honored on roulette bindings like every other type')
 end)
 
 -- ---- System actions: display / hotbar ----

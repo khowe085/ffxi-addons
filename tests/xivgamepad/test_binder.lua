@@ -1,7 +1,9 @@
 -- Tests for xivgamepad/binder.lua: toggle lifecycle, trigger-held navigation
 -- with pause/resume, the empty-slot bind flows (ma with skill sub-menu, ja,
--- ct presets, a, map, ex), occupied-slot operations (Overlay / Replace /
--- Remove / Swap / Reorder), and overlay-type is_available filtering.
+-- ct presets, a, map, ex), the get_mounts mount menu with its Mount Roulette
+-- entry, gamedata-driven job-ability category sub-menus, occupied-slot
+-- operations (Overlay / Replace / Remove / Swap / Reorder), and overlay-type
+-- is_available filtering.
 --
 -- The log stub is preloaded via package.loaded before requiring the module
 -- under test (contracts doc: tests own this stub, never the shared mock).
@@ -27,7 +29,9 @@ package.loaded['action'] = nil
 local action = require('action')
 
 -- Augment shared res fixtures by mutation (never edit the mock): spells across
--- the magic skill categories, a pet-type job ability, and a mounts table.
+-- the magic skill categories, pet-type job abilities (PetCommand plus two
+-- Monster-type BST Ready moves for the gamedata reclassification tests), and
+-- a mounts table.
 res.spells[57]  = { id = 57,  en = 'Haste',       type = 'WhiteMagic', skill = 34, prefix = '/magic', mp_cost = 40, recast_id = 57 }
 res.spells[220] = { id = 220, en = 'Poison',      type = 'BlackMagic', skill = 35, prefix = '/magic', mp_cost = 5,  recast_id = 220 }
 res.spells[245] = { id = 245, en = 'Drain',       type = 'BlackMagic', skill = 37, prefix = '/magic', mp_cost = 21, recast_id = 245 }
@@ -37,6 +41,8 @@ res.spells[513] = { id = 513, en = 'Kupipi',      type = 'Trust',      skill = 0
 res.spells[623] = { id = 623, en = 'Head Butt',   type = 'BlueMagic',  skill = 43, prefix = '/magic', mp_cost = 12, recast_id = 623 }
 res.spells[769] = { id = 769, en = 'Geo-Haste',   type = 'Geomancy',   skill = 44, prefix = '/magic', mp_cost = 46, recast_id = 769 }
 res.job_abilities[100] = { id = 100, en = 'Sic', type = 'PetCommand', prefix = '/pet', recast_id = 100 }
+res.job_abilities[200] = { id = 200, en = 'Foot Kick',    type = 'Monster', prefix = '/pet', recast_id = 200, tp_cost = 0, element = 15, targets = 32 }
+res.job_abilities[201] = { id = 201, en = 'Sheep Charge', type = 'Monster', prefix = '/pet', recast_id = 201, tp_cost = 0, element = 15, targets = 32 }
 res.mounts = res.mounts or {}
 res.mounts[1] = { id = 1, en = 'Chocobo' }
 
@@ -127,6 +133,8 @@ local function make_env(cfg)
     images           = images,
     on_close         = function() env.closes = env.closes + 1 end,
     ct_presets       = cfg.ct_presets,
+    get_mounts       = cfg.get_mounts,
+    gamedata         = cfg.gamedata,
   }
   return env
 end
@@ -505,6 +513,166 @@ test('xhb_r half addresses absolute slots 9..16', function()
   assert_eq(2, save.position)
   assert_deep({ type = 'map' }, save.set.slots[9])
   assert_eq(nil, save.set.slots[1])
+end)
+
+-- ---- Mount menu: get_mounts and the Mount Roulette entry ----
+
+local function owned_mounts()
+  return { 'Crab', 'Raptor' }
+end
+
+test('mount menu without get_mounts lists every res mount and no roulette', function()
+  setup()
+  open_binder()
+  tap('A')
+  choose('Mount')
+  local expected = {}
+  for _, mount in pairs(res.mounts) do expected[#expected + 1] = mount.en end
+  table.sort(expected)
+  assert_deep(expected, item_labels())
+  for _, label in ipairs(item_labels()) do
+    assert_eq(false, label == 'Mount Roulette', 'no roulette entry without get_mounts')
+  end
+end)
+
+test('mount menu with get_mounts lists owned mounts with Mount Roulette last', function()
+  setup({ get_mounts = owned_mounts })
+  open_binder()
+  tap('A')
+  choose('Mount')
+  assert_deep({ 'Crab', 'Raptor', 'Mount Roulette' }, item_labels())
+end)
+
+test('selecting Mount Roulette skips the target menu and writes the frozen binding', function()
+  local env = setup({ get_mounts = owned_mounts })
+  open_binder()
+  tap('A')
+  choose('Mount')
+  choose('Mount Roulette')
+  assert_eq('confirm', binder._state().menu, 'mount flow must skip the target menu')
+  tap('A')
+  assert_deep({ type = 'mount', action = 'Mount Roulette' }, last_save(env).set.slots[1])
+  assert_eq('slots', binder._state().menu, 'confirm must return to the slot list')
+end)
+
+test('selecting an owned mount still writes a plain mount binding', function()
+  local env = setup({ get_mounts = owned_mounts })
+  open_binder()
+  tap('A')
+  choose('Mount')
+  choose('Raptor')
+  assert_eq('confirm', binder._state().menu)
+  tap('A')
+  assert_deep({ type = 'mount', action = 'Raptor' }, last_save(env).set.slots[1])
+end)
+
+-- ---- Job-ability category sub-menus (gamedata) ----
+
+-- Minimal gamedata fake over the frozen categories/list surface, shaped like
+-- the generated abilities table: kebab category names, entries carrying
+-- en/type ('ja' | 'pet'), sorted output like the real adapter.
+local function make_gamedata(fixture)
+  return {
+    categories = function(res_key)
+      if res_key ~= 'job_abilities' then return {} end
+      local names = {}
+      for category in pairs(fixture) do names[#names + 1] = category end
+      table.sort(names)
+      return names
+    end,
+    list = function(res_key, category)
+      if res_key ~= 'job_abilities' then return {} end
+      local entries = {}
+      for _, entry in ipairs(fixture[category] or {}) do entries[#entries + 1] = entry end
+      table.sort(entries, function(a, b) return a.en < b.en end)
+      return entries
+    end,
+  }
+end
+
+-- The generator mislabels Monster-type (BST Ready) abilities as type='ja'
+-- (only blood pacts and pet commands map to 'pet'), so the fixture mirrors
+-- that: Foot Kick and Sheep Charge carry type='ja' with ids resolving to
+-- Monster-type res.job_abilities rows, and the binder must reclassify them
+-- as pet -- hiding 'ready' entirely and filtering them from mixed lists.
+local ja_fixture = {
+  ['abilities'] = {
+    { en = 'Provoke', type = 'ja' },
+    { en = 'Berserk', type = 'ja' },
+    { en = 'Fight',   type = 'pet' },
+    { en = 'Sheep Charge', id = 201, type = 'ja' },
+  },
+  ['phantom-rolls'] = {
+    { en = "Corsair's Roll", type = 'ja' },
+    { en = 'Chaos Roll',     type = 'ja' },
+  },
+  ['quick-draw'] = { { en = 'Fire Shot', type = 'ja' } },
+  ['stratagems'] = { { en = 'Penury',    type = 'ja' } },
+  ['pet-commands'] = { { en = 'Sic', type = 'pet' } },
+  ['ready'] = { { en = 'Foot Kick', id = 200, type = 'ja' } },
+}
+
+test('ja flow with gamedata shows readable category labels; pet-only and ready hidden', function()
+  setup({ gamedata = make_gamedata(ja_fixture) })
+  open_binder()
+  tap('A')
+  choose('Job Ability')
+  assert_eq('ja_categories', binder._state().menu)
+  assert_deep({ 'Abilities', 'Phantom Rolls', 'Quick Draw', 'Stratagems' }, item_labels(),
+    'pet-commands and ready (all entries pet after res reclassification) must be hidden')
+end)
+
+test('choosing a category lists its abilities sorted, pet entries filtered', function()
+  setup({ gamedata = make_gamedata(ja_fixture) })
+  open_binder()
+  tap('A')
+  choose('Job Ability')
+  choose('Phantom Rolls')
+  assert_eq('actions', binder._state().menu)
+  assert_deep({ 'Chaos Roll', "Corsair's Roll" }, item_labels())
+  tap('B')
+  assert_eq('ja_categories', binder._state().menu, 'B must back up to the categories')
+  choose('Abilities')
+  assert_deep({ 'Berserk', 'Provoke' }, item_labels(),
+    'generated-pet (Fight) and res-reclassified Monster (Sheep Charge) entries'
+    .. ' must be filtered from ja category lists')
+end)
+
+test('ja category flow writes the binding through target and confirm', function()
+  local env = setup({ gamedata = make_gamedata(ja_fixture) })
+  open_binder()
+  tap('A')
+  choose('Job Ability')
+  choose('Quick Draw')
+  choose('Fire Shot')
+  assert_eq('targets', binder._state().menu)
+  choose('<t>')
+  tap('A')
+  assert_deep({ type = 'ja', action = 'Fire Shot', target = 't' }, last_save(env).set.slots[1])
+end)
+
+test('ja flow with an empty gamedata falls back to the flat res list', function()
+  setup({ gamedata = make_gamedata({}) })
+  open_binder()
+  tap('A')
+  choose('Job Ability')
+  assert_eq('actions', binder._state().menu)
+  assert_deep({ 'Berserk', 'Provoke' }, item_labels())
+end)
+
+test('pet and magic flows stay res-driven with gamedata provided', function()
+  setup({ gamedata = make_gamedata(ja_fixture) })
+  open_binder()
+  tap('A')
+  choose('Pet Command')
+  assert_eq('actions', binder._state().menu)
+  assert_deep({ 'Foot Kick', 'Sheep Charge', 'Sic' }, item_labels(),
+    'Monster-type Ready moves stay reachable through the pet binding type')
+  tap('B')
+  choose('Magic')
+  assert_eq('skills', binder._state().menu)
+  choose('Healing')
+  assert_deep({ 'Cure' }, item_labels())
 end)
 
 -- ---- Occupied-slot operations ----

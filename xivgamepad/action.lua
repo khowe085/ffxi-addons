@@ -128,6 +128,7 @@ function action.run_action(name_or_command, ctx, params)
     def.run(ctx, params or {})
     return
   end
+  log.debug('xivgamepad: no action registered as %s; sending as a raw command', name_or_command)
   windower.send_command(name_or_command)
 end
 
@@ -336,10 +337,18 @@ register_builtin_types = function()
       windower.send_command('input /ta ' .. target_of(binding))
     end,
   })
+  -- 'Mount Roulette' is a binder-written sentinel, not a res mount name: it
+  -- dispatches the mount_roulette system action, which MAIN registers (this
+  -- module never does). Unregistered it takes run_action's raw-command
+  -- fall-through, which is harmless.
   action.register_type('mount', {
     describe = function(binding) return binding.alias or binding.action end,
-    execute = function(binding)
+    execute = function(binding, ctx)
       if not has_action(binding) then return end
+      if binding.action == 'Mount Roulette' then
+        action.run_action('mount_roulette', ctx)
+        return
+      end
       windower.send_command('input /mount "' .. binding.action .. '"')
     end,
   })

@@ -26,6 +26,17 @@
 --                    listed by the ct (raw command) binding type. A controller
 --                    cannot type free text, so ct bindings are chosen from
 --                    these presets; defaults to a small built-in list.
+--   get_mounts       optional function() -> sorted owned-mount display names.
+--                    When provided the mount menu lists these plus a final
+--                    'Mount Roulette' entry that writes the frozen binding
+--                    { type = 'mount', action = 'Mount Roulette' }; absent,
+--                    the menu falls back to every res.mounts entry.
+--   gamedata         optional generated-resources adapter (categories(res_key)
+--                    and list(res_key, category)). When provided the
+--                    job-ability flow gains one category sub-menu level
+--                    (rolls, quick-draw, stratagems, ...); absent, the flat
+--                    res.job_abilities list. Spells and weapon skills stay
+--                    res-driven either way.
 --
 -- toggle(ctx) -- ctx: { active_set, display_mode, mode }. display_mode 'xhb_r'
 -- targets the right half (slots 9..16) and assumes RT is the held trigger at
@@ -50,6 +61,8 @@ local res = require('resources')
 local action_iface     = nil
 local ct_presets       = nil
 local ctx              = nil
+local gamedata         = nil
+local get_mounts       = nil
 local get_player_state = nil
 local get_set          = nil
 local half_offset      = 0
@@ -146,6 +159,8 @@ local back_one_level
 local breadcrumb
 local build_action_menu
 local build_confirm_menu
+local build_ja_action_menu
+local build_ja_category_menu
 local build_occupied_menu
 local build_overlay_type_menu
 local build_reorder_menu
@@ -154,6 +169,7 @@ local build_slot_menu
 local build_swap_menu
 local build_target_menu
 local build_type_menu
+local category_label
 local commit_pending
 local commit_reorder
 local confirm_selection
@@ -165,6 +181,7 @@ local is_trigger_held
 local list_ct_items
 local list_display_modes
 local list_items
+local list_ja_category
 local list_job_abilities
 local list_mounts
 local list_spells
@@ -180,6 +197,7 @@ local render
 local reorder_move
 local reset_to_root
 local select_action
+local select_ja_category
 local select_overlay_type
 local select_skill
 local select_slot
@@ -246,6 +264,8 @@ function binder.init(opts)
   get_player_state = opts.get_player_state
   on_close_cb      = opts.on_close
   ct_presets       = opts.ct_presets or default_ct_presets
+  get_mounts       = opts.get_mounts
+  gamedata         = opts.gamedata
   create_ui(opts.texts, opts.images)
 end
 
@@ -317,6 +337,15 @@ advance_after_type = function(code)
     push_menu(build_target_menu())
   elseif code == 'map' or code == 'noop' then
     push_menu(build_confirm_menu())
+  elseif code == 'ja' and gamedata ~= nil then
+    -- Generated resources can be empty (generation failure); fall back to
+    -- the flat res-driven list rather than presenting a dead menu.
+    local frame = build_ja_category_menu()
+    if #frame.items > 0 then
+      push_menu(frame)
+    else
+      push_menu(build_action_menu(code))
+    end
   else
     push_menu(build_action_menu(code))
   end
@@ -401,6 +430,29 @@ build_confirm_menu = function()
     items = { { label = 'Confirm' } },
     index = 1,
   }
+end
+
+build_ja_action_menu = function(category_def)
+  return {
+    id    = 'actions',
+    title = category_def.label,
+    items = list_ja_category(category_def.category),
+    index = 1,
+  }
+end
+
+-- Categories whose entries are all pet-type (blood pacts, ready, pet
+-- commands) are reachable through the pet binding type instead, so they are
+-- hidden here rather than shown empty.
+build_ja_category_menu = function()
+  local items = {}
+  local categories = gamedata.categories('job_abilities')
+  for i = 1, #categories do
+    if #list_ja_category(categories[i]) > 0 then
+      items[#items + 1] = { label = category_label(categories[i]), category = categories[i] }
+    end
+  end
+  return { id = 'ja_categories', title = type_label('ja'), items = items, index = 1 }
 end
 
 build_occupied_menu = function(rel)
@@ -488,6 +540,15 @@ build_type_menu = function()
   return { id = 'types', title = 'Type', items = items, index = 1 }
 end
 
+-- Generated-resource categories are kebab-cased ('phantom-rolls',
+-- 'blood-pacts/rage'); menu labels are their title-cased words.
+category_label = function(category)
+  local pretty = tostring(category):gsub('[-/]', ' '):gsub('(%a)(%w*)', function(head, rest)
+    return head:upper() .. rest
+  end)
+  return pretty
+end
+
 commit_pending = function()
   if pending == nil then return end
   local binding = { type = pending.type_code }
@@ -529,6 +590,8 @@ confirm_selection = function()
     advance_after_type(item.code)
   elseif frame.id == 'skills' then
     select_skill(item)
+  elseif frame.id == 'ja_categories' then
+    select_ja_category(item)
   elseif frame.id == 'actions' then
     select_action(item)
   elseif frame.id == 'targets' then
@@ -612,6 +675,25 @@ list_items = function()
   return items
 end
 
+-- Pet entries are filtered for the same reason list_job_abilities excludes
+-- them: they belong to the pet binding type, and listing them here would
+-- write /ja bindings for /pet abilities. The generated type field alone is
+-- not enough -- the generator maps Monster-type (BST Ready) abilities to
+-- type 'ja' -- so entries are also reclassified against res.job_abilities
+-- via pet_ability_types, the module's single source of truth.
+list_ja_category = function(category)
+  local items = {}
+  for _, entry in ipairs(gamedata.list('job_abilities', category)) do
+    local res_entry = (res.job_abilities or {})[entry.id]
+    local is_pet = entry.type == 'pet'
+      or pet_ability_types[res_entry and res_entry.type] == true
+    if not is_pet then
+      items[#items + 1] = { label = entry.en, action = entry.en }
+    end
+  end
+  return items
+end
+
 list_job_abilities = function(pet)
   local items = {}
   for _, ability in pairs(res.job_abilities or {}) do
@@ -624,8 +706,20 @@ list_job_abilities = function(pet)
   return items
 end
 
+-- get_mounts serves owned display names already sorted; 'Mount Roulette' is
+-- appended last so it never interleaves with mount names. Without get_mounts
+-- (main not wiring the mounts adapter) every res mount is offered and no
+-- roulette entry exists to dispatch to.
 list_mounts = function()
   local items = {}
+  if get_mounts ~= nil then
+    local names = get_mounts()
+    for i = 1, #names do
+      items[i] = { label = names[i], action = names[i] }
+    end
+    items[#items + 1] = { label = 'Mount Roulette', action = 'Mount Roulette' }
+    return items
+  end
   for _, mount in pairs(res.mounts or {}) do
     items[#items + 1] = { label = mount.en, action = mount.en }
   end
@@ -769,6 +863,10 @@ select_action = function(item)
   pending.action = item.action
   pending.alias = item.alias
   advance_after_action(pending.type_code)
+end
+
+select_ja_category = function(category_def)
+  push_menu(build_ja_action_menu(category_def))
 end
 
 select_overlay_type = function(name)
