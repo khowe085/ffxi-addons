@@ -317,3 +317,143 @@ defaults = {
 Load-time key neutralization (on `load`; restored on `unload`):
 `bind ^`` … ^1..^0 ^= xivgamepad noop` (Ctrl+number macro palette) and
 `bind f9|f10|f11|f12 xivgamepad noop` (paddles). `F1`–`F8` stay untouched.
+
+## Crossbar port amendments (Wave 0, frozen)
+
+Companion to `.planning/xivgamepad-crossbar-features.md`. Same rules as the base contracts: these
+shapes are **frozen** so Waves 1A–1E and 2A–2C can proceed in parallel; do not deviate silently.
+
+### `crossbar/` subtree rule
+
+Ported third-party files live under `xivgamepad/crossbar/` with their BSD-3/MIT license headers
+retained **verbatim**, plus a `-- PORT:` comment block (directly under the retained header)
+enumerating **every** edit made to the file. Only these edit categories are allowed:
+
+1. require-path fixes
+2. event-registration extraction (the file exposes handlers; main registers events)
+3. output/input path redirection (runtime files under `data/`, per the data-paths section)
+4. Lua 5.1 parse fixes (e.g. parenthesizing string-literal method calls)
+5. global hygiene (localize accidental globals)
+
+| File | require name |
+|---|---|
+| `xivgamepad/crossbar/icon_extractor.lua` | `crossbar/icon_extractor` |
+| `xivgamepad/crossbar/mountroulette.lua` | `crossbar/mountroulette` |
+| `xivgamepad/crossbar/skillchain/skillchains.lua` | `crossbar/skillchain/skillchains` |
+| `xivgamepad/crossbar/skillchain/skills.lua` | `crossbar/skillchain/skills` |
+| `xivgamepad/crossbar/resource_generator.lua` | `crossbar/resource_generator` |
+| `xivgamepad/crossbar/kebab_casify.lua` | `crossbar/kebab_casify` |
+| `xivgamepad/crossbar/ordered_pairs.lua` | `crossbar/ordered_pairs` |
+| `xivgamepad/crossbar/md5.lua` | `crossbar/md5` |
+
+Adapter modules live at the addon root (`gamedata`, `icons`, `mounts`, `skillchain`) and follow
+every monorepo convention. An adapter (or any addon-root module) must **never** be named
+`resources`, `actions`, `lists`, `sets`, or `pack` — those names would shadow Windower's shared
+libs on the addon search path.
+
+### Adapter APIs (frozen)
+
+**gamedata** — generated-resources pipeline and lookup surface:
+
+```lua
+gamedata.init(addon_path)
+gamedata.ensure_fresh()          -- idempotent per session; creates data/generated/;
+                                 -- regenerates on MD5 mismatch against Windower res sources
+gamedata.spell(name)             -- generated spell entry or nil
+gamedata.ability(name)           -- generated ability/weapon-skill entry or nil
+gamedata.entry_for(binding)      -- ma -> spells; ja/ws/pet -> abilities; any other type -> nil
+gamedata.icon_for(binding)       -- resolution order below; addon-relative path or nil
+gamedata.recast_key(binding)     -- -> (recast_id or id, res_key)
+gamedata.categories(res_key)     -- category names present in the generated table
+gamedata.list(res_key, category) -- entries in that category (binder sub-menus)
+```
+
+`icon_for` resolution order: `binding.icon` → iconpack `custom_icon` (existence-checked via
+`files.exists`, result cached) → `default_icon` → nil. Returned paths are **addon-relative
+WITHOUT a leading slash** (upstream generator output carries a leading slash — normalize it away).
+
+Generated files: `data/generated/crossbar_spells.lua` and `data/generated/crossbar_abilities.lua`,
+loaded via `files.read` + `loadstring` inside `pcall` — **NEVER `require`**: regeneration must not
+be served a stale cached module, and tests must stay on the in-memory fs. MD5 freshness is checked
+against Windower's res sources read via `files.new('../../res/spells.lua')` (and
+`job_abilities.lua` / `weapon_skills.lua`) — a **documented read-only walk-up exception**; the
+never-walk-above-`addon_path` rule governs directory creation and writes, not these reads.
+
+**icons** — runtime item-icon extraction:
+
+```lua
+icons.init(addon_path)
+icons.item_icon(item_id_or_en_name) -- addon-relative path or nil
+icons.close()
+```
+
+Extracted 32x32 BMPs are cached at `data/icons/items/{item_id}.bmp` (keyed by item id). Any
+extraction failure (missing DAT, non-Windows env, bad id) returns nil and emits **one `log.debug`
+per item id per session**; `item_icon` never raises into a render path.
+
+**mounts** — owned-mount tracking and roulette:
+
+```lua
+mounts.refresh()     -- rederive owned mounts from key items
+mounts.list()        -- sorted display-name array of owned mounts
+mounts.ride_random() -- dismount if mounted, else mount a random owned mount
+mounts.has_mounts()
+```
+
+Main wires incoming chunk `0x055` (key-item update) → `mounts.refresh()` and also calls `refresh`
+from `init()`.
+
+**skillchain** — resonance state machine (main forwards all events):
+
+```lua
+skillchain.on_action(act)
+skillchain.on_incoming_chunk(id, data)
+skillchain.on_job_change(job_abbrev)
+skillchain.on_zone_change()
+skillchain.on_login()
+skillchain.on_logout()
+skillchain.tick()
+skillchain.prop_for(id, res_key)  -- skillchain property name or nil
+skillchain.window()               -- -> (remaining_delay, remaining_window)
+```
+
+Enabled gate: an **injected getter** reading settings key `skillchain_display`. While disabled,
+every query returns nil and every handler is a no-op.
+
+### New system action (frozen)
+
+`mount_roulette` — registered by **MAIN** via `action.register_action`. `action.lua`'s `mount`
+binding type special-cases the action name `'Mount Roulette'` → `run_action('mount_roulette')`.
+
+### New settings key (frozen)
+
+`skillchain_display = true` (top-level default; toggled from the config GUI's Display tab).
+
+### HUD contract additions
+
+- `hud.init` opts gain `gamedata` and `get_skillchain_prop(binding)`.
+- New draggable element id `sc_timer` ("Wait n.n" / "Go! n.n"), position persisted under
+  `hud_positions.sc_timer` via the existing hud_positions machinery.
+- Per-slot skillchain **highlight layer** resolved during `tick()` (time-windowed within the chain
+  window). Highlight icon: `images/icons/iconpacks/default/skillchain/<prop lowercase>.png`, with
+  fallbacks radiance → `light.png` and umbra → `darkness.png`.
+
+### Binder contract additions
+
+- `binder.init` opts gain `get_mounts` (owned display names) and `gamedata` (drives job-ability
+  category sub-menus).
+- The mount menu lists the owned mounts plus a `'Mount Roulette'` entry that produces the binding
+  `{ type = 'mount', action = 'Mount Roulette' }`.
+
+### Data paths
+
+- `data/generated/` — generated resources (character-independent).
+- `data/icons/items/` — extracted item icon BMPs.
+
+### io carve-out (frozen wording)
+
+> `xivgamepad/crossbar/icon_extractor.lua` is the single reviewed exception to the no-io rule. The
+> Windower files API can neither read an arbitrary absolute path (the FFXI install under
+> `windower.ffxi_path`) nor perform binary seeks into ROM DAT files. This file uses `io.open`
+> read-only against the game's ROM DATs and write-only to produce 32x32 BMP files under
+> `xivgamepad/data/icons/`. No other addon file may use or require `io`.

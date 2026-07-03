@@ -20,6 +20,11 @@ local manifest = {
   'test_tester.lua',
   'test_wizard.lua',
   'test_binder.lua',
+  -- Crossbar-port adapters (Wave 1); warn-skipped until they land.
+  'test_gamedata.lua',
+  'test_icons.lua',
+  'test_mounts.lua',
+  'test_skillchain.lua',
   -- Last: loads the REAL modules end-to-end (no stubs), so it must not be
   -- polluted by — or pollute — the stub-preloading unit files above.
   'test_integration.lua',

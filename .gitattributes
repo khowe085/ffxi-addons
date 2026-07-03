@@ -6,3 +6,8 @@
 
 # Consumed by the Linux devcontainer — must stay LF.
 .devcontainer/Dockerfile text eol=lf
+
+# Image assets (crossbar icon port and elsewhere) — never text-normalize.
+*.png binary
+*.bmp binary
+*.jpg binary
