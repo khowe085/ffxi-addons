@@ -96,3 +96,18 @@ player-facing documentation is in the [wiki](../docs/xivgamepad/wiki/Home.md).
 Settings are scoped per character and follow the login lifecycle: XIVGamepad can be loaded before
 you log in (it waits), reloads the correct character's settings and hotbars on every login or
 character switch, and hides the HUD at the character-select screen.
+
+## Credits
+
+The crossbar feature set (`crossbar/`, `images/icons/`) is ported from the
+[xivcrossbar](https://github.com/AliekberFFXI/xivcrossbar) lineage. Full per-file attribution and
+license texts live in [LICENSES-THIRD-PARTY.md](LICENSES-THIRD-PARTY.md).
+
+- **Ivaar** — SkillChains library: skillchain resonance tracking and WS/JA property data.
+- **Dean James (Xurion of Bismarck)** — Mount Roulette: the random-mount logic.
+- **Rubenator** and **Trv** — icon extractor: item-icon extraction from the FFXI DATs (base
+  extraction code by Trv).
+- **Aliekber (AliekberFFXI)** — xivcrossbar: the resource generator, the default icon-pack art,
+  and the extracted icon set shipped in `images/icons/`.
+- **SirEdeonX** — XIVHotbar, the addon lineage xivcrossbar derives from.
+- **kikito (Enrique García Cota)** — md5.lua, used for generated-resource freshness checks.
