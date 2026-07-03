@@ -4,10 +4,14 @@
 -- clock-sweeps from tick(), and supports per-element dragging during config.
 --
 -- Everything arrives via init opts (settings table, addon_path, texts/images
--- libs, resolve_binding, get_player_state, on_element_move) so the module
--- never requires main or action. hud.on_mouse(mtype, x, y, delta) is a
--- contract-consistent addition: main feeds its mouse event here; it returns
--- true only while it consumes a drag interaction.
+-- libs, resolve_binding, get_player_state, on_element_move, and the optional
+-- crossbar-port members gamedata, get_skillchain_prop, get_skillchain_window)
+-- so the module never requires main, action, or the adapters. Every optional
+-- opt degrades: without gamedata the res-scan/TYPE_ICONS paths apply, and
+-- without the skillchain getters the highlight layer and sc_timer stay
+-- hidden. hud.on_mouse(mtype, x, y, delta) is a contract-consistent
+-- addition: main feeds its mouse event here; it returns true only while it
+-- consumes a drag interaction.
 --
 -- Data-driven slot decorations: a resolved binding may carry `count` (item /
 -- ninja tool / stratagem badge, computed upstream), `usable = false`
@@ -34,18 +38,23 @@ local LABEL_H       = 18
 local SWEEP_STEPS   = 8
 local UNUSABLE_FADE = 0.4
 
-local ELEMENT_IDS = { 'half_left', 'half_right', 'label' }
+local SC_TIMER_W = 120
+local SC_TIMER_H = LABEL_H
+
+local ELEMENT_IDS = { 'half_left', 'half_right', 'label', 'sc_timer' }
 
 local ELEMENT_DEFAULTS = {
   half_left  = { x = 180, y = 520 },
   half_right = { x = 460, y = 520 },
   label      = { x = 180, y = 494 },
+  sc_timer   = { x = 180, y = 470 },
 }
 
 local ELEMENT_SIZES = {
   half_left  = { w = HALF_W, h = HALF_H },
   half_right = { w = HALF_W, h = HALF_H },
   label      = { w = LABEL_W, h = LABEL_H },
+  sc_timer   = { w = SC_TIMER_W, h = SC_TIMER_H },
 }
 
 -- Frozen slot indices (UP=1, RIGHT=2, DOWN=3, LEFT=4 / A=5, B=6, X=7, Y=8);
@@ -74,23 +83,39 @@ local MODE_LABELS = {
   expand_rt_lt = 'Expanded RT>LT',
 }
 
+-- Type fallback art re-pointed at the shipped default iconpack (the old
+-- images/types/* paths shipped nowhere). Each pick is the closest existing
+-- asset; none are authored for this purpose except attack/ranged/item/mount/
+-- map, which are exact.
+local ICONPACK = 'images/icons/iconpacks/default/'
+
 local TYPE_ICONS = {
-  ma    = 'images/types/ma.png',
-  ja    = 'images/types/ja.png',
-  ws    = 'images/types/ws.png',
-  a     = 'images/types/attack.png',
-  ra    = 'images/types/ranged.png',
-  pet   = 'images/types/pet.png',
-  item  = 'images/types/item.png',
-  mount = 'images/types/mount.png',
-  ta    = 'images/types/target.png',
-  map   = 'images/types/map.png',
-  ct    = 'images/types/command.png',
-  ex    = 'images/types/display.png',
+  ma    = ICONPACK .. 'heal.png',
+  ja    = ICONPACK .. 'contradance.png',
+  ws    = ICONPACK .. 'sword.png',
+  a     = ICONPACK .. 'attack.png',
+  ra    = ICONPACK .. 'ranged.png',
+  pet   = ICONPACK .. 'return-trust.png',
+  item  = ICONPACK .. 'item.png',
+  mount = ICONPACK .. 'mount.png',
+  ta    = ICONPACK .. 'switchtarget.png',
+  map   = ICONPACK .. 'map.png',
+  ct    = ICONPACK .. 'check.png',
+  ex    = ICONPACK .. 'geo.png',
 }
 
-local DEFAULT_TYPE_ICON = 'images/types/default.png'
-local EMPTY_SLOT_ICON   = 'images/slot_empty.png'
+local DEFAULT_TYPE_ICON = ICONPACK .. 'ui/red-x.png'
+local EMPTY_SLOT_ICON   = ICONPACK .. 'ui/frame.png'
+
+-- Dedicated radial-sweep art does not ship; the iconpack's 8-step frame
+-- animation (frame_step1..8.png) is the closest existing stepped sequence
+-- and matches SWEEP_STEPS. Flagged for the docs wave as placeholder art.
+local SWEEP_ICON_FORMAT = ICONPACK .. 'ui/frame_step%d.png'
+
+local SCHAIN_ICON_DIR = ICONPACK .. 'skillchain/'
+
+-- Radiance/Umbra have no dedicated shipped icons; contract-frozen fallbacks.
+local SCHAIN_ICON_ALIASES = { radiance = 'light', umbra = 'darkness' }
 
 -- Memoizes the linear English-name resource scans (res tables are static),
 -- keyed 'type|action'; false marks a known miss so tick() never re-scans a
@@ -100,18 +125,23 @@ local resource_cache = {}
 local active_half
 local alpha_from_transparency
 local element_at
+local entry_for
 local find_resource
 local icon_path
+local recast_id_for
 local recast_remaining
 local render_all
 local render_label
+local render_sc_timer
 local render_slot
 local resolved_slot
 local resource_for
+local schain_icon_path
 local slot_at
 local slot_pos
 local slot_transparency
 local tooltip_lines
+local update_sc_timer
 
 -- Public functions (alphabetical; _-prefixed are test-only accessors)
 
@@ -127,6 +157,10 @@ function hud._position_for_test(id)
   local p = state and state.positions[id]
   if p == nil then return nil end
   return { x = p.x, y = p.y }
+end
+
+function hud._sc_timer_for_test()
+  return state and state.sc_timer
 end
 
 function hud._slot_pos_for_test(i)
@@ -145,11 +179,13 @@ function hud.destroy()
     local layers = state.slots[i]
     layers.icon:destroy()
     layers.sweep:destroy()
+    layers.schain:destroy()
     layers.badge:destroy()
     layers.unusable:destroy()
   end
   state.label:destroy()
   state.tooltip:destroy()
+  state.sc_timer:destroy()
   state = nil
 end
 
@@ -160,7 +196,10 @@ function hud.hide()
   state.tooltip:hide()
   for i = 1, 16 do
     state.slots[i].sweep:hide()
+    state.slots[i].schain:hide()
   end
+  state.schains = {}
+  state.sc_phase = nil
   render_all()
 end
 
@@ -178,12 +217,18 @@ function hud.init(opts)
       view      = nil,
       display   = nil,
       peaks     = {},
+      schains   = {},
+      sc_phase  = nil,
     }
     state.label = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
     state.tooltip = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
+    state.sc_timer = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
     state.label:draggable(false)
     state.tooltip:draggable(false)
+    state.sc_timer:draggable(false)
     for i = 1, 16 do
+      -- Creation order is z-order in-game: the skillchain highlight layer is
+      -- created after icon and sweep so it draws above both.
       state.slots[i] = {
         icon = images_lib.new({
           pos   = { x = 0, y = 0 },
@@ -195,23 +240,38 @@ function hud.init(opts)
           size  = { width = SLOT_SIZE, height = SLOT_SIZE },
           flags = { draggable = false },
         }),
+        schain = images_lib.new({
+          pos   = { x = 0, y = 0 },
+          size  = { width = SLOT_SIZE, height = SLOT_SIZE },
+          flags = { draggable = false },
+        }),
         badge = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } }),
         unusable = texts_lib.new('X', { pos = { x = 0, y = 0 }, flags = { draggable = false } }),
       }
       state.slots[i].icon:draggable(false)
       state.slots[i].sweep:draggable(false)
+      state.slots[i].schain:draggable(false)
       state.slots[i].badge:draggable(false)
       state.slots[i].unusable:draggable(false)
     end
     log.debug('hud elements created')
   end
-  state.settings         = opts.settings or {}
-  state.addon_path       = opts.addon_path or ''
-  state.resolve_binding  = opts.resolve_binding
-  state.get_player_state = opts.get_player_state
-  state.on_element_move  = opts.on_element_move
+  state.settings              = opts.settings or {}
+  state.addon_path            = opts.addon_path or ''
+  state.resolve_binding       = opts.resolve_binding
+  state.get_player_state      = opts.get_player_state
+  state.on_element_move       = opts.on_element_move
+  state.gamedata              = opts.gamedata
+  state.get_skillchain_prop   = opts.get_skillchain_prop
+  state.get_skillchain_window = opts.get_skillchain_window
   state.drag = nil
   state.tooltip:hide()
+  -- Re-init drops any live skillchain display; the next tick() rebuilds it.
+  for i = 1, 16 do
+    state.slots[i].schain:hide()
+  end
+  state.schains = {}
+  state.sc_phase = nil
   local saved = state.settings.hud_positions or {}
   for _, id in ipairs(ELEMENT_IDS) do
     local p = saved[id] or ELEMENT_DEFAULTS[id]
@@ -295,8 +355,8 @@ function hud.show()
 end
 
 function hud.tick()
-  -- Sweeps are already hidden by hide(), so a hidden HUD skips the whole
-  -- per-frame pass.
+  -- Sweeps and skillchain layers are already hidden by hide(), so a hidden
+  -- HUD skips the whole per-frame pass.
   if state == nil or state.view == nil or not state.visible then return end
   for i = 1, 16 do
     local layers = state.slots[i]
@@ -318,13 +378,31 @@ function hud.tick()
       if step < 1 then step = 1 end
       local x, y = slot_pos(i)
       layers.sweep:pos(x, y)
-      layers.sweep:path(state.addon_path .. string.format('images/sweep_%d.png', step))
+      layers.sweep:path(state.addon_path .. string.format(SWEEP_ICON_FORMAT, step))
       layers.sweep:show()
     else
       state.peaks[i] = nil
       layers.sweep:hide()
     end
+    -- Skillchain highlight: the layer is only touched on a state change; the
+    -- per-slot cache makes steady-state ticks allocation-free for this layer.
+    local prop = nil
+    if binding ~= nil and state.get_skillchain_prop then
+      prop = state.get_skillchain_prop(binding)
+    end
+    if prop ~= state.schains[i] then
+      state.schains[i] = prop
+      if prop == nil then
+        layers.schain:hide()
+      else
+        local x, y = slot_pos(i)
+        layers.schain:pos(x, y)
+        layers.schain:path(state.addon_path .. schain_icon_path(prop))
+        layers.schain:show()
+      end
+    end
   end
+  update_sc_timer()
 end
 
 -- Private functions (alphabetical)
@@ -358,6 +436,17 @@ element_at = function(x, y)
   return nil
 end
 
+-- gamedata's generated tables are O(1) name-keyed; the linear res scan stays
+-- as the gamedata-less fallback (and as defense when generation came up
+-- empty for an entry).
+entry_for = function(binding)
+  if state.gamedata then
+    local entry = state.gamedata.entry_for(binding)
+    if entry ~= nil then return entry end
+  end
+  return resource_for(binding)
+end
+
 find_resource = function(tbl, name)
   if tbl == nil or name == nil then return nil end
   for _, entry in pairs(tbl) do
@@ -369,7 +458,21 @@ find_resource = function(tbl, name)
 end
 
 icon_path = function(binding)
+  if state.gamedata then
+    local path = state.gamedata.icon_for(binding)
+    if path ~= nil then return path end
+  end
   return binding.icon or TYPE_ICONS[binding.type] or DEFAULT_TYPE_ICON
+end
+
+recast_id_for = function(binding)
+  if state.gamedata then
+    local id = state.gamedata.recast_key(binding)
+    if id ~= nil then return id end
+  end
+  local entry = resource_for(binding)
+  if entry == nil then return nil end
+  return entry.recast_id or entry.id
 end
 
 recast_remaining = function(binding)
@@ -377,20 +480,20 @@ recast_remaining = function(binding)
   if ffxi == nil then return 0 end
   if binding.type == 'ma' then
     if type(ffxi.get_spell_recasts) ~= 'function' then return 0 end
-    local spell = resource_for(binding)
-    if spell == nil then return 0 end
+    local id = recast_id_for(binding)
+    if id == nil then return 0 end
     local recasts = ffxi.get_spell_recasts() or {}
-    local raw = recasts[spell.recast_id or spell.id]
+    local raw = recasts[id]
     if raw == nil or raw <= 0 then return 0 end
     -- get_spell_recasts reports 1/60ths of a second.
     return raw / 60
   end
   if binding.type == 'ja' then
     if type(ffxi.get_ability_recasts) ~= 'function' then return 0 end
-    local ability = resource_for(binding)
-    if ability == nil then return 0 end
+    local id = recast_id_for(binding)
+    if id == nil then return 0 end
     local recasts = ffxi.get_ability_recasts() or {}
-    local raw = recasts[ability.recast_id or ability.id]
+    local raw = recasts[id]
     if raw == nil or raw <= 0 then return 0 end
     return raw
   end
@@ -399,6 +502,7 @@ end
 
 render_all = function()
   render_label()
+  render_sc_timer()
   for i = 1, 16 do
     render_slot(i)
   end
@@ -429,17 +533,33 @@ render_label = function()
   end
 end
 
+-- Position/visibility only; text and color are tick()-owned. sc_phase is the
+-- live-window flag: the element follows HUD visibility while a window is
+-- live and ignores the per-half transparency states entirely.
+render_sc_timer = function()
+  local pos = state.positions.sc_timer
+  state.sc_timer:pos(pos.x, pos.y)
+  if state.visible and state.sc_phase ~= nil then
+    state.sc_timer:show()
+  else
+    state.sc_timer:hide()
+  end
+end
+
 render_slot = function(i)
   local layers = state.slots[i]
   local binding = resolved_slot(i)
   local x, y = slot_pos(i)
   layers.icon:pos(x, y)
   layers.sweep:pos(x, y)
+  layers.schain:pos(x, y)
   layers.badge:pos(x + SLOT_SIZE - 12, y + SLOT_SIZE - 16)
   layers.unusable:pos(x + 2, y + 2)
   local alpha = alpha_from_transparency(slot_transparency(i))
   if binding == nil then
     layers.sweep:hide()
+    layers.schain:hide()
+    state.schains[i] = nil
     layers.badge:hide()
     layers.unusable:hide()
     if state.visible and not state.settings.hide_empty_slots then
@@ -510,6 +630,12 @@ resource_for = function(binding)
   return entry
 end
 
+schain_icon_path = function(prop)
+  local name = tostring(prop):lower()
+  name = SCHAIN_ICON_ALIASES[name] or name
+  return SCHAIN_ICON_DIR .. name .. '.png'
+end
+
 slot_at = function(x, y)
   for i = 1, 16 do
     local sx, sy = slot_pos(i)
@@ -552,7 +678,7 @@ tooltip_lines = function(binding)
   lines[#lines + 1] = binding.alias or binding.action or tostring(binding.type or '')
   lines[#lines + 1] = 'Type: ' .. tostring(binding.type)
   if binding.type == 'ma' then
-    local spell = resource_for(binding)
+    local spell = entry_for(binding)
     if spell and spell.mp_cost then
       lines[#lines + 1] = 'MP: ' .. tostring(spell.mp_cost)
     end
@@ -564,6 +690,40 @@ tooltip_lines = function(binding)
     lines[#lines + 1] = string.format('Recast: %.1fs', remaining)
   end
   return lines
+end
+
+-- Window semantics (skillchain.window()): delay > 0 means resonance is set
+-- but bursting would misfire ('Wait'); delay exhausted with window remaining
+-- means the chain is open ('Go!'). Color/show/hide run only on phase
+-- transitions; the text reformat is the one unavoidable per-tick write while
+-- a window is live.
+update_sc_timer = function()
+  local delay, window
+  if state.get_skillchain_window then
+    delay, window = state.get_skillchain_window()
+  end
+  local phase = nil
+  if type(window) == 'number' and window > 0 then
+    if type(delay) == 'number' and delay > 0 then
+      phase = 'wait'
+    else
+      phase = 'go'
+    end
+  end
+  if phase ~= state.sc_phase then
+    state.sc_phase = phase
+    if phase == 'wait' then
+      state.sc_timer:color(255, 0, 0)
+    elseif phase == 'go' then
+      state.sc_timer:color(0, 255, 0)
+    end
+    render_sc_timer()
+  end
+  if phase == 'wait' then
+    state.sc_timer:text(string.format('Wait %.1f', delay))
+  elseif phase == 'go' then
+    state.sc_timer:text(string.format('Go! %.1f', window))
+  end
 end
 
 return hud

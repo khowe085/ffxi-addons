@@ -86,12 +86,15 @@ local player_state = { buffs = {}, main_job = 'WAR', sub_job = 'NIN', is_mounted
 local moves
 local settings
 
-local function fresh(resolve_binding)
+-- extra merges additional init opts (gamedata, get_skillchain_prop,
+-- get_skillchain_window) over the baseline; existing callers pass nothing
+-- and get the original opts unchanged.
+local function fresh(resolve_binding, extra)
   windower._reset()
   hud.destroy()
   moves = {}
   settings = make_settings()
-  hud.init({
+  local opts = {
     settings         = settings,
     addon_path       = ADDON_PATH,
     texts            = texts,
@@ -99,7 +102,11 @@ local function fresh(resolve_binding)
     resolve_binding  = resolve_binding or function(slot, ps) return slot end,
     get_player_state = function() return player_state end,
     on_element_move  = function(id, x, y) table.insert(moves, { id = id, x = x, y = y }) end,
-  })
+  }
+  if extra then
+    for k, v in pairs(extra) do opts[k] = v end
+  end
+  hud.init(opts)
 end
 
 -- ---- Guards before init ----
@@ -159,7 +166,7 @@ test('refresh renders bindings: icon paths, badge, unusable indicator', function
   assert_eq(ADDON_PATH .. 'icons/cure.png', slot1.icon:path(), 'binding.icon used when present')
   assert_eq(true, slot1.icon:visible(), 'bound slot icon visible')
   local slot5 = hud._layers_for_test(5)
-  assert_eq(ADDON_PATH .. 'images/types/ja.png', slot5.icon:path(), 'type default icon when binding.icon absent')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/contradance.png', slot5.icon:path(), 'type default icon when binding.icon absent')
   local slot9 = hud._layers_for_test(9)
   assert_eq('3', slot9.badge:text(), 'count badge text')
   assert_eq(true, slot9.badge:visible(), 'count badge visible')
@@ -189,7 +196,7 @@ test('empty slots render placeholder, hide when hide_empty_slots, keep positions
   hud.show()
   hud.refresh(make_view())
   local slot2 = hud._layers_for_test(2)
-  assert_eq(ADDON_PATH .. 'images/slot_empty.png', slot2.icon:path(), 'empty placeholder path')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame.png', slot2.icon:path(), 'empty placeholder path')
   assert_eq(true, slot2.icon:visible(), 'empty slot shown while hide_empty_slots false')
   local x1 = hud._slot_pos_for_test(1)
   settings.hide_empty_slots = true
@@ -269,7 +276,7 @@ test('tick drives the clock-sweep steps from recast data', function()
   windower.ffxi._spell_recasts[1] = 1800
   hud.tick()
   assert_eq(true, sweep1:visible(), 'sweep visible while recasting')
-  assert_eq(ADDON_PATH .. 'images/sweep_4.png', sweep1:path(), '30s of 60s cooldown -> step 4 of 8')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step4.png', sweep1:path(), '30s of 60s cooldown -> step 4 of 8')
   windower.ffxi._spell_recasts[1] = 0
   hud.tick()
   assert_eq(false, sweep1:visible(), 'sweep hidden when recast done')
@@ -282,10 +289,10 @@ test('sweep total falls back to the peak remaining when cooldown is unset', func
   local sweep5 = hud._layers_for_test(5).sweep
   windower.ffxi._ability_recasts[5] = 15
   hud.tick()
-  assert_eq(ADDON_PATH .. 'images/sweep_8.png', sweep5:path(), 'first tick: full fraction -> step 8')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step8.png', sweep5:path(), 'first tick: full fraction -> step 8')
   windower.ffxi._ability_recasts[5] = 7.5
   hud.tick()
-  assert_eq(ADDON_PATH .. 'images/sweep_4.png', sweep5:path(), 'half the peak -> step 4')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step4.png', sweep5:path(), 'half the peak -> step 4')
 end)
 
 test('a view switch mid-sweep resets the slot peak', function()
@@ -294,7 +301,7 @@ test('a view switch mid-sweep resets the slot peak', function()
   hud.refresh(make_view())
   windower.ffxi._ability_recasts[5] = 60
   hud.tick()
-  assert_eq(ADDON_PATH .. 'images/sweep_8.png', hud._layers_for_test(5).sweep:path(),
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step8.png', hud._layers_for_test(5).sweep:path(),
     'peak 60 established for the old binding')
   local view = make_view()
   view.slots[5] = { type = 'ja', action = 'Berserk' }
@@ -302,7 +309,7 @@ test('a view switch mid-sweep resets the slot peak', function()
   windower.ffxi._ability_recasts[5] = nil
   windower.ffxi._ability_recasts[1] = 15
   hud.tick()
-  assert_eq(ADDON_PATH .. 'images/sweep_8.png', hud._layers_for_test(5).sweep:path(),
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step8.png', hud._layers_for_test(5).sweep:path(),
     'new binding starts a fresh peak (full sweep, not 15/60)')
 end)
 
@@ -405,7 +412,7 @@ test('raw slots carrying overlays are re-resolved via the injected resolver', fu
   local view = make_view()
   view.slots[3] = { type = 'ma', action = 'Cure', overlays = { { overlay_type = 'subjob' } } }
   hud.refresh(view)
-  assert_eq(ADDON_PATH .. 'images/types/ja.png', hud._layers_for_test(3).icon:path(),
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/contradance.png', hud._layers_for_test(3).icon:path(),
     'overlay-resolved binding rendered')
   assert_true(#calls >= 1, 'resolver invoked')
   assert_eq(player_state, calls[1].ps, 'injected player state passed to the resolver')
@@ -431,6 +438,27 @@ test('hide conceals every layer; show restores them', function()
   assert_eq(true, hud._label_for_test():visible(), 'label restored')
 end)
 
+test('a still-active skillchain highlight reappears after hide and show', function()
+  fresh(nil, {
+    get_skillchain_prop = function(binding)
+      if binding.action == 'Fast Blade' then return 'Fusion' end
+      return nil
+    end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  hud.tick()
+  local schain13 = hud._layers_for_test(13).schain
+  assert_eq(true, schain13:visible(), 'highlight established')
+  hud.hide()
+  assert_eq(false, schain13:visible(), 'highlight hidden with the HUD')
+  hud.show()
+  hud.tick()
+  assert_eq(true, schain13:visible(), 'unchanged property re-highlights after show and tick')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/skillchain/fusion.png',
+    schain13:path(), 'property icon path restored')
+end)
+
 test('destroy tears down elements and init rebuilds from scratch', function()
   fresh()
   local icon = hud._layers_for_test(1).icon
@@ -440,6 +468,239 @@ test('destroy tears down elements and init rebuilds from scratch', function()
   hud.destroy()
   fresh()
   assert_true(hud._layers_for_test(1) ~= nil, 'init rebuilds after destroy')
+end)
+
+-- ---- gamedata integration ----
+
+test('gamedata icon_for takes precedence; binding.icon and TYPE_ICONS remain fallbacks', function()
+  fresh(nil, {
+    gamedata = {
+      icon_for = function(binding)
+        if binding.action == 'Provoke' then
+          return 'images/icons/abilities/00005.png'
+        end
+        return nil
+      end,
+      entry_for  = function() return nil end,
+      recast_key = function() return nil end,
+    },
+  })
+  hud.show()
+  hud.refresh(make_view())
+  assert_eq(ADDON_PATH .. 'images/icons/abilities/00005.png',
+    hud._layers_for_test(5).icon:path(), 'gamedata icon wins for a known entry')
+  assert_eq(ADDON_PATH .. 'icons/cure.png',
+    hud._layers_for_test(1).icon:path(), 'binding.icon fallback when gamedata misses')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/sword.png',
+    hud._layers_for_test(13).icon:path(), 'TYPE_ICONS fallback when gamedata misses')
+end)
+
+test('without gamedata the icon fallback chain is unchanged', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  assert_eq(ADDON_PATH .. 'icons/cure.png',
+    hud._layers_for_test(1).icon:path(), 'binding.icon still wins')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/contradance.png',
+    hud._layers_for_test(5).icon:path(), 'TYPE_ICONS still applies')
+end)
+
+test('recast and tooltip lookups consult gamedata first, res scan as fallback', function()
+  fresh(nil, {
+    gamedata = {
+      icon_for = function() return nil end,
+      entry_for = function(binding)
+        if binding.action == 'Mystic Spell' then
+          return { mp_cost = 42, recast_id = 777, res_key = 'spells' }
+        end
+        return nil
+      end,
+      recast_key = function(binding)
+        if binding.action == 'Mystic Spell' then
+          return 777, 'spells'
+        end
+        return nil
+      end,
+    },
+  })
+  hud.show()
+  local view = make_view()
+  view.slots[2] = { type = 'ma', action = 'Mystic Spell', cooldown = 60 }
+  hud.refresh(view)
+  -- 'Mystic Spell' is absent from res.spells: only the gamedata recast id can
+  -- drive this sweep.
+  windower.ffxi._spell_recasts[777] = 1800
+  windower.ffxi._spell_recasts[1] = 1800
+  hud.tick()
+  local sweep2 = hud._layers_for_test(2).sweep
+  assert_eq(true, sweep2:visible(), 'gamedata recast id drives the sweep')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step4.png',
+    sweep2:path(), '30s of 60s cooldown -> step 4 of 8')
+  assert_eq(true, hud._layers_for_test(1).sweep:visible(),
+    'res-scan fallback still resolves entries gamedata misses')
+  hud.on_mouse(0, 185, 145)
+  local tooltip = hud._tooltip_for_test()
+  assert_eq(true, tooltip:visible(), 'tooltip shown over slot 2')
+  assert_true(tooltip:text():find('MP: 42', 1, true) ~= nil,
+    'tooltip MP read from the gamedata entry')
+end)
+
+-- ---- Skillchain highlight ----
+
+test('skillchain highlight shows the property icon per slot and hides on nil', function()
+  local prop = nil
+  fresh(nil, {
+    get_skillchain_prop = function(binding)
+      if binding.action == 'Fast Blade' then return prop end
+      return nil
+    end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  hud.tick()
+  local schain13 = hud._layers_for_test(13).schain
+  assert_eq(false, schain13:visible(), 'no highlight before a window opens')
+  prop = 'Fusion'
+  hud.tick()
+  assert_eq(true, schain13:visible(), 'highlight shown for the eligible slot')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/skillchain/fusion.png',
+    schain13:path(), 'property icon path lowercased under the iconpack')
+  assert_eq(false, hud._layers_for_test(1).schain:visible(), 'other slots stay unhighlighted')
+  prop = nil
+  hud.tick()
+  assert_eq(false, schain13:visible(), 'highlight hidden when the property clears')
+end)
+
+test('radiance and umbra map to the light and darkness icons', function()
+  local prop = 'Radiance'
+  fresh(nil, {
+    get_skillchain_prop = function(binding)
+      if binding.action == 'Fast Blade' then return prop end
+      return nil
+    end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  hud.tick()
+  local schain13 = hud._layers_for_test(13).schain
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/skillchain/light.png',
+    schain13:path(), 'Radiance falls back to light.png')
+  prop = 'Umbra'
+  hud.tick()
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/skillchain/darkness.png',
+    schain13:path(), 'Umbra falls back to darkness.png')
+end)
+
+test('unchanged skillchain state does not rewrite the layer', function()
+  fresh(nil, {
+    get_skillchain_prop = function(binding)
+      if binding.action == 'Fast Blade' then return 'Light' end
+      return nil
+    end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  hud.tick()
+  local schain13 = hud._layers_for_test(13).schain
+  assert_eq(true, schain13:visible(), 'highlight established')
+  local writes = 0
+  local orig_path = schain13.path
+  schain13.path = function(self, p)
+    if p ~= nil then writes = writes + 1 end
+    return orig_path(self, p)
+  end
+  hud.tick()
+  hud.tick()
+  schain13.path = orig_path
+  assert_eq(0, writes, 'steady-state ticks leave the layer untouched')
+end)
+
+-- ---- sc_timer ----
+
+test('sc_timer: hidden, then Wait red, then Go green, then hidden again', function()
+  local delay, window = 0, 0
+  fresh(nil, {
+    get_skillchain_window = function() return delay, window end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  local timer = hud._sc_timer_for_test()
+  hud.tick()
+  assert_eq(false, timer:visible(), 'hidden with no live window')
+  delay, window = 2.5, 8
+  hud.tick()
+  assert_eq(true, timer:visible(), 'shown during the delay phase')
+  assert_eq('Wait 2.5', timer:text(), 'delay phase text')
+  assert_eq(255, timer._color[1], 'wait is red (r)')
+  assert_eq(0, timer._color[2], 'wait is red (g)')
+  delay, window = 0, 5.2
+  hud.tick()
+  assert_eq(true, timer:visible(), 'shown during the open window')
+  assert_eq('Go! 5.2', timer:text(), 'open window text')
+  assert_eq(0, timer._color[1], 'go is green (r)')
+  assert_eq(255, timer._color[2], 'go is green (g)')
+  delay, window = 0, 0
+  hud.tick()
+  assert_eq(false, timer:visible(), 'hidden once the window expires')
+end)
+
+test('sc_timer visibility follows hud show/hide', function()
+  fresh(nil, {
+    get_skillchain_window = function() return 0, 5 end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  hud.tick()
+  local timer = hud._sc_timer_for_test()
+  assert_eq(true, timer:visible(), 'visible with the HUD shown and a live window')
+  hud.hide()
+  assert_eq(false, timer:visible(), 'hidden with the HUD')
+  hud.tick()
+  assert_eq(false, timer:visible(), 'tick while hidden does not resurface it')
+  hud.show()
+  hud.tick()
+  assert_eq(true, timer:visible(), 'restored on show once tick sees the live window')
+end)
+
+test('sc_timer drags via the element machinery and persists under hud_positions.sc_timer', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_draggable(true)
+  assert_eq(180, hud._position_for_test('sc_timer').x, 'default sc_timer x')
+  assert_eq(true, hud.on_mouse(1, 190, 475), 'down over sc_timer starts a drag')
+  assert_eq(true, hud.on_mouse(0, 250, 500), 'drag move consumed')
+  assert_eq(240, hud._position_for_test('sc_timer').x, 'element x follows the drag')
+  assert_eq(495, hud._position_for_test('sc_timer').y, 'element y follows the drag')
+  assert_eq(240, hud._sc_timer_for_test()._x, 'text element repositions with the drag')
+  assert_eq(true, hud.on_mouse(2, 250, 500), 'release consumed')
+  assert_eq(1, #moves, 'one move reported')
+  assert_eq('sc_timer', moves[1].id, 'sc_timer id reported')
+  assert_eq(240, moves[1].x, 'final x reported')
+  assert_eq(495, moves[1].y, 'final y reported')
+  settings.hud_positions.sc_timer = { x = 240, y = 495 }
+  hud.init({
+    settings         = settings,
+    addon_path       = ADDON_PATH,
+    texts            = texts,
+    images           = images,
+    resolve_binding  = function(slot) return slot end,
+    get_player_state = function() return player_state end,
+    on_element_move  = function() end,
+  })
+  assert_eq(240, hud._position_for_test('sc_timer').x, 'staged position re-read on re-init')
+end)
+
+-- ---- Backward compatibility ----
+
+test('tick without skillchain opts leaves highlight and timer hidden', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  hud.tick()
+  hud.tick()
+  assert_eq(false, hud._layers_for_test(13).schain:visible(), 'no highlight without the getter')
+  assert_eq(false, hud._sc_timer_for_test():visible(), 'no timer without the getter')
 end)
 
 -- ----
