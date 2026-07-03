@@ -608,6 +608,31 @@ for name, buff_id in pairs(buff_overlay_types) do
   end)
 end
 
+-- ---- Overlay-type enumeration (public API; binder consumes these) ----
+
+test('list_overlay_types returns the frozen overlay types sorted', function()
+  local names = action.list_overlay_types()
+  assert_eq('addendum_black,addendum_white,dark_arts,light_arts,subjob',
+    table.concat(names, ','))
+end)
+
+test('get_overlay_type returns defs with callable check and is_available', function()
+  local frozen = { 'subjob', 'light_arts', 'addendum_white', 'dark_arts', 'addendum_black' }
+  for _, name in ipairs(frozen) do
+    local def = action.get_overlay_type(name)
+    assert_eq('function', type(def.check), name .. ' check must be callable')
+    assert_eq('function', type(def.is_available), name .. ' is_available must be callable')
+  end
+end)
+
+test('get_overlay_type returns nil for an unknown name', function()
+  assert_eq(nil, action.get_overlay_type('not_a_real_type'))
+end)
+
+test('_get_overlay_type delegates to the public getter', function()
+  assert_eq(action.get_overlay_type('subjob'), action._get_overlay_type('subjob'))
+end)
+
 -- ---- register_overlay_type: new overlay types register without touching core ----
 
 test('register_overlay_type adds a usable overlay type', function()
@@ -621,6 +646,12 @@ test('register_overlay_type adds a usable overlay type', function()
   }
   local matched = action.resolve_binding(slot, { custom = true })
   assert_eq('custom_overlay', matched.overlay_type)
+end)
+
+test('list_overlay_types reflects a newly registered type, still sorted', function()
+  local names = action.list_overlay_types()
+  assert_eq('addendum_black,addendum_white,custom_overlay,dark_arts,light_arts,subjob',
+    table.concat(names, ','))
 end)
 
 -- ----

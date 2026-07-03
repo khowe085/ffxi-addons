@@ -24,7 +24,7 @@ local setkey_press
 local target_of
 
 function action._get_overlay_type(name)
-  return overlay_types[name]
+  return action.get_overlay_type(name)
 end
 
 function action._get_type(code)
@@ -45,6 +45,10 @@ function action.get_action(name)
   return actions[name]
 end
 
+function action.get_overlay_type(name)
+  return overlay_types[name]
+end
+
 function action.list_actions()
   local names = {}
   for name in pairs(actions) do
@@ -57,6 +61,15 @@ function action.list_actions()
     list[i] = { name = names[i], description = def.description, icon = def.icon }
   end
   return list
+end
+
+function action.list_overlay_types()
+  local names = {}
+  for name in pairs(overlay_types) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  return names
 end
 
 function action.register_action(name, def)
