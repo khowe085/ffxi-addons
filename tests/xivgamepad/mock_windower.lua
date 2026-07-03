@@ -630,6 +630,25 @@ windower._make_fake_io = function(fs_map)
   }
 end
 
+-- Additive extension (Wave 1B): module-level files functions. The ported
+-- crossbar/resource_generator.lua calls files.read(f)/files.write(f, ...)/
+-- files.create(f)/files.exists(f) with FILE OBJECTS, module-function style,
+-- exactly as the real Windower files library supports alongside method calls.
+-- New fields only; files.exists keeps its existing path-string behavior and
+-- is wrapped (never rewritten) to also accept a file object.
+files.read = function(f) return f:read() end
+files.write = function(f, content, flush) f:write(content) end
+files.create = function(f)
+  if windower._fs[f.path] == nil then windower._fs[f.path] = '' end
+end
+local base_files_exists = files.exists
+files.exists = function(path_or_file)
+  if type(path_or_file) == 'table' then
+    return windower._fs[path_or_file.path] ~= nil
+  end
+  return base_files_exists(path_or_file)
+end
+
 -- Wrap _reset again (never rewrite): restore the crossbar-port fixtures.
 local pre_crossbar_reset = windower._reset
 windower._reset = function()
