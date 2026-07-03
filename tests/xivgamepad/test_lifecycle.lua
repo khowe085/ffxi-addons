@@ -29,6 +29,10 @@ end
 hud_stub.tick          = function() hud_stub._ticks = hud_stub._ticks + 1 end
 hud_stub.set_draggable = function(v) hud_stub._draggable = v end
 hud_stub.destroy       = function() hud_stub._destroyed = true end
+hud_stub.on_mouse      = function(mtype, x, y, delta)
+  table.insert(hud_stub._mouse_calls, { mtype = mtype, x = x, y = y, delta = delta })
+  return hud_stub._mouse_result
+end
 
 config_ui_stub.init       = function(opts) config_ui_stub._init_opts = opts end
 config_ui_stub.open       = function(staged)
@@ -43,10 +47,18 @@ config_ui_stub.on_mouse   = function(mtype, x, y, delta)
   table.insert(config_ui_stub._mouse_calls, { mtype = mtype, x = x, y = y, delta = delta })
   return config_ui_stub._mouse_result
 end
+config_ui_stub.destroy    = function()
+  config_ui_stub._open      = false
+  config_ui_stub._destroyed = true
+end
 
 tester_stub.init            = function(opts) tester_stub._init_opts = opts end
 tester_stub.open            = function() tester_stub._open = true end
 tester_stub.close           = function() tester_stub._open = false end
+tester_stub.destroy         = function()
+  tester_stub._open      = false
+  tester_stub._destroyed = true
+end
 tester_stub.is_open         = function() return tester_stub._open end
 tester_stub.on_button_event = function(name, pressed)
   table.insert(tester_stub._buttons, { name = name, pressed = pressed })
@@ -123,6 +135,8 @@ local function reset_stubs()
   hud_stub._ticks         = 0
   hud_stub._draggable     = nil
   hud_stub._destroyed     = false
+  hud_stub._mouse_calls   = {}
+  hud_stub._mouse_result  = false
 
   config_ui_stub._init_opts    = nil
   config_ui_stub._open         = false
@@ -130,11 +144,13 @@ local function reset_stubs()
   config_ui_stub._last_staged  = nil
   config_ui_stub._mouse_calls  = {}
   config_ui_stub._mouse_result = false
+  config_ui_stub._destroyed    = false
 
   tester_stub._init_opts = nil
   tester_stub._open      = false
   tester_stub._buttons   = {}
   tester_stub._gestures  = {}
+  tester_stub._destroyed = false
 
   wizard_stub._active       = false
   wizard_stub._opts         = nil
@@ -392,7 +408,9 @@ test('unload restores the binds and destroys the HUD', function()
                          '^9', '^0', '^=', 'f9', 'f10', 'f11', 'f12' }) do
     assert(contains(cmds, 'unbind ' .. key), 'unbind emitted for ' .. key)
   end
-  assert_eq(true, hud_stub._destroyed, 'HUD destroyed on unload')
+  assert_eq(true, hud_stub._destroyed,       'HUD destroyed on unload')
+  assert_eq(true, config_ui_stub._destroyed, 'config window destroyed on unload')
+  assert_eq(true, tester_stub._destroyed,    'tester destroyed on unload')
 end)
 
 test('unload before init is safe and still restores the binds', function()
@@ -487,7 +505,7 @@ test('prerender ticks the HUD only after init', function()
   assert_eq(1, hud_stub._ticks, 'tick delegated after init')
 end)
 
-test('on_mouse delegates unconditionally and returns the gui result', function()
+test('on_mouse delegates unconditionally: config window wins, HUD is fallback', function()
   windower.ffxi._player = make_player()
   vfs = {}
   local a = load_addon()
@@ -495,9 +513,14 @@ test('on_mouse delegates unconditionally and returns the gui result', function()
   assert_eq(true, windower._events['mouse'](1, 5, 6, 0, false), 'gui-consumed event returns true')
   assert_eq(1, #config_ui_stub._mouse_calls, 'delegated before init (unconditional)')
   assert_eq(1, config_ui_stub._mouse_calls[1].mtype, 'event type forwarded')
+  assert_eq(0, #hud_stub._mouse_calls, 'config consumption short-circuits the HUD')
   config_ui_stub._mouse_result = false
   assert_eq(false, a.on_mouse(2, 5, 6, 0), 'unconsumed event returns false')
   assert_eq(2, #config_ui_stub._mouse_calls, 'every event delegated')
+  assert_eq(1, #hud_stub._mouse_calls, 'HUD sees the event the window passed on')
+  assert_eq(2, hud_stub._mouse_calls[1].mtype, 'event type forwarded to the HUD')
+  hud_stub._mouse_result = true
+  assert_eq(true, a.on_mouse(1, 5, 6, 0), 'HUD-consumed event returns true')
 end)
 
 test('status 4 hides the HUD and halts input; leaving restores both', function()

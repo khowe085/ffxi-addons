@@ -20,6 +20,9 @@ local manifest = {
   'test_tester.lua',
   'test_wizard.lua',
   'test_binder.lua',
+  -- Last: loads the REAL modules end-to-end (no stubs), so it must not be
+  -- polluted by — or pollute — the stub-preloading unit files above.
+  'test_integration.lua',
 }
 
 -- Plain io.open probe: harness-only real-disk existence check, so the mock's

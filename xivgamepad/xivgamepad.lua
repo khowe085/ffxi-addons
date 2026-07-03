@@ -71,6 +71,7 @@ local xivgamepad = {}
 
 local apply_binds
 local binder_opts
+local binder_save_set
 local build_defaults
 local build_view
 local close_wizard
@@ -87,6 +88,7 @@ local hud_opts
 local index_gestures
 local make_ctx
 local offer_wizard
+local on_binder_close
 local on_buff_gain
 local on_buff_loss
 local on_job_change
@@ -95,11 +97,11 @@ local on_zone_change
 local poll_tick
 local rebuild_player_state
 local reconcile_player_state
-local reload_content
 local resolve_gesture_action
 local restore_binds
 local set_content
 local set_is_empty
+local stage_change
 local stage_hud_position
 local start_learn_mode
 local start_poll
@@ -260,8 +262,12 @@ function xivgamepad.on_button(button, pressed)
   if learn_mode then return end
   if player_state.in_event then return end
   if binder_mode then
-    binder.on_button(button, pressed)
+    -- Gamepad first: the BACK-with-trigger open_binder gesture is the
+    -- close-toggle path, and dispatching it before binder.on_button means the
+    -- binder's own BACK fallback then sees a closed binder and no-ops --
+    -- binder-first would close and immediately reopen on the same press.
     gamepad.on_button_event(button, pressed)
+    binder.on_button(button, pressed)
     return
   end
   if test_mode then
@@ -302,8 +308,13 @@ end
 
 -- Unconditional delegation (echo pattern): the gui must see the mouse-up that
 -- pairs with a click that closed the window, so this is never gated on state.
+-- The config window wins; the HUD (element drags, slot tooltips) only sees
+-- events the window did not consume.
 function xivgamepad.on_mouse(mtype, x, y, delta)
-  return config_ui.on_mouse(mtype, x, y, delta)
+  if config_ui.on_mouse(mtype, x, y, delta) then
+    return true
+  end
+  return hud.on_mouse(mtype, x, y, delta)
 end
 
 function xivgamepad.on_unload()
@@ -314,9 +325,9 @@ function xivgamepad.on_unload()
   staged_settings = nil
   if initialized then
     close_wizard()
-    tester.close()
     binder.close()
-    config_ui.close()
+    tester.destroy()
+    config_ui.destroy()
     hud.destroy()
   end
   initialized = false
@@ -420,17 +431,46 @@ apply_binds = function()
   end
 end
 
+-- Exactly the surface binder.init documents: get_set/save_set map working
+-- position 1..8 onto the shared.json or job.json content behind that
+-- position's source flag; on_close is the single binder-closed path (any
+-- close route fires it), so binder_mode is cleared here and nowhere reloads.
 binder_opts = function()
   return {
+    action           = action,
     texts            = texts,
     images           = images,
-    addon_path       = windower.addon_path,
-    storage          = storage,
-    action           = action,
-    get_settings     = function() return live_settings end,
-    get_char_name    = function() return char_name end,
+    get_set          = function(position) return set_content(position) end,
+    save_set         = function(position, set_table) binder_save_set(position, set_table) end,
     get_player_state = function() return player_state end,
+    on_close         = function() on_binder_close() end,
   }
+end
+
+binder_save_set = function(position, set_table)
+  local meta = live_settings.sets and live_settings.sets[position]
+  if not meta then
+    log.error('binder_save_set: unknown set position %s', tostring(position))
+    return
+  end
+  if meta.source == 'shared' then
+    shared_sets[position] = set_table
+    storage.save_shared(windower.addon_path, char_name, shared_sets)
+  else
+    local job = player_state.main_job
+    if not job then
+      log.error('binder_save_set: no main job for job-sourced set %d', position)
+      return
+    end
+    local sets = job_sets[job]
+    if not sets then
+      sets = {}
+      job_sets[job] = sets
+    end
+    sets[position] = set_table
+    storage.save_job(windower.addon_path, char_name, job_sets)
+  end
+  xivgamepad.refresh_hud()
 end
 
 build_defaults = function()
@@ -522,23 +562,19 @@ commit_live = function(keys)
   hud.init(hud_opts())
 end
 
+-- Exactly the surface config_ui.init documents: on_change (staging), staged
+-- accessor, save/discard handlers that commit/discard AND close the window
+-- (the config_gui mouse-up swallow relies on the close happening inside the
+-- handler), and the wizard launcher for the Keys tab.
 config_opts = function()
   return {
     texts         = texts,
     images        = images,
-    title         = _addon.name,
-    addon_path    = windower.addon_path,
-    pos           = { x = live_settings.config_x, y = live_settings.config_y },
     on_save       = xivgamepad.setup_close_save,
     on_discard    = xivgamepad.setup_close_discard,
     launch_wizard = function() start_learn_mode() end,
-    get_live      = function() return live_settings end,
     get_staged    = function() return staged_settings end,
-    stage_set     = function(key, value)
-      if staged_settings then
-        settings_lib.stage_set(staged_settings, key, value)
-      end
-    end,
+    on_change     = function(key, value) stage_change(key, value) end,
   }
 end
 
@@ -661,6 +697,13 @@ offer_wizard = function()
   start_learn_mode()
 end
 
+on_binder_close = function()
+  binder_mode = false
+  -- save_set already kept the in-memory content current, so closing only
+  -- needs a refresh -- no disk reload (which would double-apply).
+  xivgamepad.refresh_hud()
+end
+
 on_buff_gain = function(buff_id)
   if not initialized or player_state.buffs[buff_id] then return end
   player_state.buffs[buff_id] = true
@@ -773,12 +816,6 @@ reconcile_player_state = function()
   xivgamepad.refresh_hud()
 end
 
-reload_content = function()
-  shared_sets = storage.load_shared(windower.addon_path, char_name)
-  job_sets    = storage.load_job(windower.addon_path, char_name)
-  xivgamepad.refresh_hud()
-end
-
 resolve_gesture_action = function(id)
   local entry = gestures_by_id[id]
   if entry and entry.action then
@@ -820,6 +857,11 @@ set_is_empty = function(position)
   return true
 end
 
+stage_change = function(key, value)
+  if not staged_settings then return end
+  settings_lib.stage_set(staged_settings, key, value)
+end
+
 stage_hud_position = function(element_id, x, y)
   if not settings_lib.in_setup() or not staged_settings then return end
   local positions = {}
@@ -833,6 +875,11 @@ end
 start_learn_mode = function()
   if wizard.is_active() then return end
   learn_mode = true
+  -- keyboard.set_raw_callback delivers key-DOWN edges only (contract); the
+  -- wizard's optional third `pressed` argument is deliberately not supplied.
+  -- Down-only feeding leaves captured trigger anchors sticky, which is
+  -- physically safe: Steam only emits d-pad chord keys while the anchor is
+  -- actually held.
   keyboard.set_raw_callback(function(dik, ctrl_down)
     wizard.on_raw_key(dik, ctrl_down)
   end)
@@ -871,9 +918,6 @@ toggle_binder = function()
     mode         = live_settings.current_mode,
   })
   binder_mode = binder.is_open()
-  if not binder_mode then
-    reload_content()
-  end
 end
 
 toggle_mode = function()

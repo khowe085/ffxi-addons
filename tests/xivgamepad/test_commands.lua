@@ -29,6 +29,10 @@ end
 hud_stub.tick          = function() hud_stub._ticks = hud_stub._ticks + 1 end
 hud_stub.set_draggable = function(v) hud_stub._draggable = v end
 hud_stub.destroy       = function() hud_stub._destroyed = true end
+hud_stub.on_mouse      = function(mtype, x, y, delta)
+  table.insert(hud_stub._mouse_calls, { mtype = mtype, x = x, y = y, delta = delta })
+  return hud_stub._mouse_result
+end
 
 config_ui_stub.init       = function(opts) config_ui_stub._init_opts = opts end
 config_ui_stub.open       = function(staged)
@@ -43,10 +47,18 @@ config_ui_stub.on_mouse   = function(mtype, x, y, delta)
   table.insert(config_ui_stub._mouse_calls, { mtype = mtype, x = x, y = y, delta = delta })
   return config_ui_stub._mouse_result
 end
+config_ui_stub.destroy    = function()
+  config_ui_stub._open      = false
+  config_ui_stub._destroyed = true
+end
 
 tester_stub.init            = function(opts) tester_stub._init_opts = opts end
 tester_stub.open            = function() tester_stub._open = true end
 tester_stub.close           = function() tester_stub._open = false end
+tester_stub.destroy         = function()
+  tester_stub._open      = false
+  tester_stub._destroyed = true
+end
 tester_stub.is_open         = function() return tester_stub._open end
 tester_stub.on_button_event = function(name, pressed)
   table.insert(tester_stub._buttons, { name = name, pressed = pressed })
@@ -123,6 +135,8 @@ local function reset_stubs()
   hud_stub._ticks         = 0
   hud_stub._draggable     = nil
   hud_stub._destroyed     = false
+  hud_stub._mouse_calls   = {}
+  hud_stub._mouse_result  = false
 
   config_ui_stub._init_opts    = nil
   config_ui_stub._open         = false
@@ -130,11 +144,13 @@ local function reset_stubs()
   config_ui_stub._last_staged  = nil
   config_ui_stub._mouse_calls  = {}
   config_ui_stub._mouse_result = false
+  config_ui_stub._destroyed    = false
 
   tester_stub._init_opts = nil
   tester_stub._open      = false
   tester_stub._buttons   = {}
   tester_stub._gestures  = {}
+  tester_stub._destroyed = false
 
   wizard_stub._active       = false
   wizard_stub._opts         = nil
