@@ -303,3 +303,60 @@ SETUP: Logged in, field; config closed.
 | 12.29 | `//xg help`, then an unknown command like `//xg bogus` | Both print the command list | ☐ |
 
 RESET: close config; debug mode off.
+
+## 13. Icons and generated resources
+
+SETUP: Logged in. `//lua unload xivgamepad`, delete the `xivgamepad/data/generated/` folder (and
+`xivgamepad/data/icons/` if present), then `//lua load xivgamepad`.
+
+| # | Do | Expect | ✓ |
+|---|----|--------|---|
+| 13.1 | Load with `data/generated/` deleted | The addon loads and initializes — a brief pause while resources generate is normal; no errors | ☐ |
+| 13.2 | Check `xivgamepad/data/generated/` on disk | `crossbar_spells.lua` and `crossbar_abilities.lua` exist | ☐ |
+| 13.3 | Bind a spell (`ma`) slot and view the HUD | The slot shows the real game spell icon — not the generic fallback art | ☐ |
+| 13.4 | Bind a job ability and a weapon skill | Each slot shows its real ability / weapon icon | ☐ |
+| 13.5 | `//lua r xivgamepad` without touching the files | No regeneration pause; the same icons return (the MD5 freshness check passes and the files are reused) | ☐ |
+| 13.6 | `//lua unload`, delete `data/generated/` again, `//lua load` | Both files regenerate and the real icons are back | ☐ |
+| 13.7 | Bind an Item slot and view the HUD | On a standard install the slot shows the item's **real game icon**, extracted on first display, and `data/icons/items/<id>.bmp` appears on disk (a non-standard FFXI path or missing DATs falls back to the generic item art — cosmetic only) | ☐ |
+| 13.8 | `//lua unload`, delete `xivgamepad/data/icons/`, `//lua load`, display the item slot again | Nothing breaks; the icon is **re-extracted** on that next display and the `.bmp` reappears — the cache is safe to delete at any time | ☐ |
+
+RESET: none — the caches rebuild themselves.
+
+## 14. Mount roulette
+
+SETUP: On a character that owns at least two mounts (Mounts-category key items), somewhere
+mounting is allowed. Field, chat and menus closed.
+
+| # | Do | Expect | ✓ |
+|---|----|--------|---|
+| 14.1 | Open the Binder on an empty slot and choose the Mount type | The list shows **only the mounts you own**, alphabetically, with **Mount Roulette** as the final entry | ☐ |
+| 14.2 | Select Mount Roulette, confirm | The binding is written; the slot shows the Mount Roulette binding | ☐ |
+| 14.3 | Press the slot while on foot | A random mount from your owned list is summoned | ☐ |
+| 14.4 | Press the slot while mounted | You dismount | ☐ |
+| 14.5 | Repeat the mount / dismount cycle several times | The summoned mount varies across presses (random over owned mounts; repeats are possible) | ☐ |
+| 14.6 | Obtain a new mount key item, then reopen the Binder's mount list | The new mount appears **without a reload** (the key-item update refreshes the owned list) | ☐ |
+| 14.7 | In config → Gestures, add a gesture on a free control, cycle `act=` to `mount_roulette`, save, press it | Behaves exactly like the slot: random owned mount, or dismount if mounted | ☐ |
+
+RESET: dismount; remove the throwaway binding and gesture if unwanted.
+
+## 15. Skillchain display
+
+SETUP: `skillchain_display` on (the default). A party member or trust able to open a two-step
+skillchain, a target to chain on, and a bound weapon skill that can close a known chain (plus, if
+available, a weapon skill released after ~2017). Field, chat closed.
+
+| # | Do | Expect | ✓ |
+|---|----|--------|---|
+| 15.1 | Land the opening weapon skill of a two-step chain | The skillchain timer appears in red: `Wait n.n`, counting down | ☐ |
+| 15.2 | Wait out the delay | The timer turns green: `Go! n.n` | ☐ |
+| 15.3 | During `Go!`, look at the hotbar halves | Every WS / JA / pet slot that would continue the chain on your current target shows a property-icon highlight — the icon is the chain that would **result** | ☐ |
+| 15.4 | Close the chain with a highlighted weapon skill during `Go!` | The skillchain fires in-game; the display moves on to the new resonance | ☐ |
+| 15.5 | Open a chain and let the window expire instead | The timer hides and every highlight clears | ☐ |
+| 15.6 | Cast a nuke during a `Go!` window | No burst indicator — magic bursts are not shown, and spell slots never highlight | ☐ |
+| 15.7 | On BST (a Ready-move pet slot) or SMN (a Blood Pact slot), open a chain it could continue | The pet slot highlights exactly like a weapon-skill slot | ☐ |
+| 15.8 | Mid-chain, open config → Display, toggle `skillchain_display` off, save | The timer and every highlight disappear immediately | ☐ |
+| 15.9 | Toggle it back on, save, and make a fresh chain | The display returns without a reload (the tracker re-seeds on the save) | ☐ |
+| 15.10 | Open config, drag the skillchain timer somewhere new (easiest while a chain is live), save, `//lua r xivgamepad` | The timer keeps its new position | ☐ |
+| 15.11 | Try to continue a chain with a weapon skill released after ~2017 | Its slot never highlights — the ported chain data predates it (documented limitation, not a bug; the WS itself still works) | ☐ |
+
+RESET: restore `skillchain_display` and the timer position to taste.

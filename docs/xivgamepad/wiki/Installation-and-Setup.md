@@ -10,6 +10,13 @@ configuration, and a Steam Input profile. Do them in this order.
 2. Load it in-game with `//lua load xivgamepad`, or add `lua load xivgamepad` to Windower's
    `init.txt` so it loads automatically.
 3. The addon is safe to load before you log in — it simply waits for the login.
+4. On the first login after an install — and again whenever Windower's resource files change,
+   e.g. after a Windower update — the addon spends a moment building its resource cache under
+   `xivgamepad/data/generated/`. A brief one-time pause there is normal. The spell, ability, and
+   weapon-skill icons on the HUD come from art shipped with the addon under `images/icons/`,
+   matched to your slots through that generated cache; item icons are extracted from your FFXI
+   install's DAT files the first time an item slot is shown and cached under
+   `xivgamepad/data/icons/items/`.
 
 ## 2. Configure FFXI's gamepad settings
 

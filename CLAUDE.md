@@ -34,6 +34,7 @@ All addons **must** use `lib/settings` for configuration management. Direct use 
 - **Addon metadata**: `_addon.name`, `.author`, `.version`, `.commands = {'addonname', 'an'}` — full name + short alias; alias is required and is the primary user interface
 - **Events**: register via `windower.register_event('load' | 'login' | 'logout' | 'unload' | 'addon command', fn)`
 - **Common APIs**: `windower`, `texts`, `packets`, `res`, `files`
+- **io exception**: `xivgamepad/crossbar/icon_extractor.lua` is the single reviewed exception to the no-`io` rule (`io.open` read-only against the game's ROM DATs under `windower.ffxi_path`, write-only to produce BMPs under `xivgamepad/data/icons/`); no other addon file may use or require `io`
 - `windower.ffxi.get_player()` returns **`nil`** before login — never index it unguarded
 
 ## Login Lifecycle

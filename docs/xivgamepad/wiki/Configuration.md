@@ -8,8 +8,10 @@ the window never reach the game.
 (or type `//xg save`). **Discard** (`//xg discard`) throws the staged changes away — including any
 HUD elements you dragged. Closing via command behaves exactly like clicking the button.
 
-While the window is open, the **HUD becomes draggable**: grab either hotbar half or the set label
-and move it anywhere. Positions are staged like every other change and persist on Save.
+While the window is open, the **HUD becomes draggable**: grab either hotbar half, the set label,
+or the skillchain timer and move it anywhere. Positions are staged like every other change and
+persist on Save. (The skillchain timer only renders while a chain is live — see
+[Skillchains and Mounts](Skillchains-and-Mounts.md).)
 
 Rows in every tab are edited by **clicking directly on the value** you want to change; each tab's
 header row reminds you what its click zones do. Tabs taller than the window scroll with the mouse
@@ -33,6 +35,9 @@ One row per set position (1–8) showing its name, source, and cycle flag.
   `inactive` (the other half). Values run 0 (fully visible) to 100 (invisible); click the left
   half of the row to lower by 10, the right half to raise by 10. The default of `inactive = 100`
   makes the non-displayed half vanish while a trigger is held.
+- `skillchain_display` — click to toggle the
+  [skillchain display](Skillchains-and-Mounts.md): the Wait/Go window timer and the per-slot
+  chain highlights. On by default; turning it on mid-session takes effect without a reload.
 
 ## Keys tab
 

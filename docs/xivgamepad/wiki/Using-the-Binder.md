@@ -33,6 +33,11 @@ Select an empty slot and confirm. The flow is:
    Switch Target, View Map, Raw Command, or Display Mode.
 2. **Action** — picking Magic first shows the skill categories (Healing, Enhancing, Enfeebling,
    Elemental, Dark, Ninjutsu, Song, Summoning, Blue, Geomancy, Trust), then the spell list.
+   **Job Ability** likewise goes through category sub-menus (Abilities, Phantom Rolls, Quick Draw,
+   Stratagems, Dances, …) built from the generated game data; categories whose entries are all pet
+   actions (Blood Pacts, Ready moves, pet commands) are reached through the **Pet Command** type
+   instead. The **Mount** list shows only the mounts you own, plus a final **Mount Roulette**
+   entry — see [Skillchains and Mounts](Skillchains-and-Mounts.md).
 3. **Target** — `<t>` current target, `<me>` self, `<st>` select target, `<stnpc>` select NPC, or
    `<bt>` battle target. (Types that need no target skip this step.)
 4. **Confirm** — the summary line shows exactly what will be written; A commits it.

@@ -52,9 +52,35 @@ right stick — that is normal; the addon never sees it.
 The bare-LB tap issues FFXI's `/autorun` command. If your client does not accept `/autorun`,
 please report it — the planned fix is synthesizing the native auto-run key instead.
 
+## Skillchain highlights never appear
+
+In order of likelihood:
+
+1. The `skillchain_display` toggle is off — check the Display tab of `//xg config`.
+2. The chain window expired — highlights only show during the green `Go!` phase, and only for
+   your **current target**.
+3. The weapon skill is newer than the ported chain data (~2017) — post-2017 weapon skills never
+   highlight. Known limitation, not a bug.
+4. The slot is a spell — magic never highlights, and magic bursts are not shown. See
+   [Skillchains and Mounts](Skillchains-and-Mounts.md).
+
+## The game pauses briefly at login after a Windower update
+
+Normal. The addon keeps a generated resource cache (`data/generated/`) keyed to Windower's own
+resource files; when those change — typically a Windower update — the cache is rebuilt once at the
+next login. Subsequent logins are instant again.
+
+## Item slots show a generic icon
+
+Item icons are extracted from your FFXI install's DAT files the first time an item slot is shown,
+then cached under `data/icons/items/`. Falling back to the built-in generic item art means the
+extraction failed — usually a non-standard FFXI install path or missing/unreadable DAT files. It
+is purely cosmetic: the slot still fires correctly. Deleting `data/icons/` is always safe — the
+icons are re-extracted the next time the slot is displayed.
+
 ## Where do my files live?
 
-Everything is under the addon folder, per character:
+Everything is under the addon folder — per character, plus two character-independent caches:
 
 | File | Contents |
 |---|---|
@@ -62,6 +88,8 @@ Everything is under the addon folder, per character:
 | `data/<Character>/shared.json` | Shared hotbar set contents (slot bindings + overlays). |
 | `data/<Character>/job.json` | Job hotbar set contents, keyed by main-job abbreviation. |
 | `data/debug.log` | The debug trace, only written while `//xg debugmode` is on. |
+| `data/generated/` | Generated spell/ability resource cache — rebuilt automatically; **safe to delete**. |
+| `data/icons/items/` | Extracted item-icon cache — regenerable; **safe to delete**. |
 
 ## How do I reset?
 

@@ -20,7 +20,7 @@ via `log.error` and never raise.
 | `a` | Attack | `input /attack <target>` |
 | `ra` | Ranged attack | `input /ra <target>` |
 | `ta` | Switch target | `input /ta <target>` |
-| `mount` | Mount | `input /mount "<action>"` |
+| `mount` | Mount | `input /mount "<action>"` — **special case:** the action name `'Mount Roulette'` (a binder-written sentinel, not a res mount) routes to `run_action('mount_roulette')` instead |
 | `map` | View map | `input /map` |
 | `ct` | Raw command | `binding.action` sent verbatim |
 | `ex` | Switch display mode | `host.show_display(binding.action)` — action is a display-mode enum value |
@@ -56,6 +56,7 @@ that is **not** a registered action is executed as a **raw Windower command** �
 |---|---|
 | `auto_run` | `input /autorun` (in-game verification pending; fallback would be key synthesis). |
 | `dismount` | `input /dismount` |
+| `mount_roulette` | Dismounts if mounted, else mounts a random owned mount (`mounts.ride_random`; icon `mount`). Registered by **main**, not `action.lua` — unregistered it would take the raw-command fall-through, which is harmless. The `mount` binding type's `'Mount Roulette'` entry routes here. |
 | `target_previous` | `setkey` chord `lshift` + `tab` |
 | `target_next` | `setkey` press `tab` |
 

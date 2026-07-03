@@ -5,7 +5,11 @@ shipped. Every module returns its module table; `_`-prefixed functions are test-
 Require names are `{AddonPath}`-relative — Windower's addon `package.path` covers the addon's
 own directory plus the shared `addons/libs`, not the addons root — so addon-root files use flat
 names and subdirectories use slash-relative names: `log`, `input/keyboard`, `gamepad`, `action`,
-`storage`, `hud`, `config_ui`, `tester`, `wizard`, `binder`.
+`storage`, `hud`, `config_ui`, `tester`, `wizard`, `binder`, plus the crossbar-port adapters
+`gamedata`, `icons`, `mounts`, `skillchain` and the ported third-party subtree under
+`crossbar/` (see [the subtree section](#crossbar-subtree-ported-third-party) below). An
+addon-root module must **never** be named `resources`, `actions`, `lists`, `sets`, or `pack` —
+those names would shadow Windower's shared libs on the addon search path.
 
 ## Global wiring rules
 
@@ -45,6 +49,19 @@ wizard offer on `login` while `key_mapping_complete` is false, and the `host` ta
 `action`. Public: `dispatch`, `dispatch_gesture(id, params)`, `init`, `on_button(name, pressed)`,
 `on_load/on_logout/on_unload`, `on_mouse`, `print_help`, `refresh_hud`, `setup_open`,
 `setup_close_save`, `setup_close_discard`, `cmd_test`, `cmd_learn(sub)`, `cmd_debugmode(arg)`.
+
+Crossbar wiring also lives here — main owns all Windower event registration for the adapters:
+`init()` runs `gamedata.init` + `ensure_fresh` (once per session), `icons.init`,
+`mounts.refresh()`, and `skillchain.init({ enabled = <skillchain_display getter> })` +
+`on_login()`; incoming chunk `0x055` → `mounts.refresh()` and every chunk is forwarded to
+`skillchain.on_incoming_chunk` (no initialized/suspend gate — passive observation); the `action`
+event, job change, zone change, logout, and prerender forward into the skillchain adapter; unload
+calls `icons.close()`. Main registers the `mount_roulette` system action
+(`mounts.ride_random`, icon `mount`) at load. `setup_close_save` re-seeds the ported skillchain
+lib (`skillchain.on_login()`) when a save flips `skillchain_display` false → true, because the
+gated adapter skipped its player/buff seeding while disabled. Only ws/ja/pet bindings resolve a
+skillchain highlight (`skillchain_prop`): the lookup key is `entry.id` + `entry.res_key` from
+`gamedata.entry_for` — never `recast_key`, whose ja recast-slot ids would guarantee misses.
 
 ## input.keyboard
 
@@ -94,13 +111,23 @@ starts false every load and is never persisted. Lines carry `os.date` timestamps
 ## hud
 
 `init(opts)` (idempotent; opts: `settings`, `addon_path`, `texts`, `images`, `resolve_binding`,
-`get_player_state`, `on_element_move(element_id, x, y)`), `show()`, `hide()`,
-`set_display(mode_or_nil)`, `refresh(view)`, `tick()` (prerender; recast sweeps), `set_draggable
+`get_player_state`, `on_element_move(element_id, x, y)`, and the optional crossbar-port members
+`gamedata`, `get_item_icon(item_id_or_name)`, `get_skillchain_prop(binding)`,
+`get_skillchain_window()` — every optional opt degrades: without `gamedata` the
+res-scan/type-icon paths apply, without `get_item_icon` item slots keep the generic type icon,
+without the skillchain getters the highlight layer and `sc_timer` stay hidden), `show()`,
+`hide()`,
+`set_display(mode_or_nil)`, `refresh(view)`, `tick()` (prerender; recast sweeps, per-slot
+skillchain highlights, and the `sc_timer` text), `set_draggable
 (bool)`, `on_mouse(mtype, x, y, delta)` (drag + tooltips; returns true only while consuming a
 drag), `destroy()`. View model: `{ active_set, set_name, mode, display_mode, slots = { [1..16] =
 resolved binding or nil } }`; slots still carrying `overlays` are re-resolved through the injected
-resolver. Elements: `half_left`, `half_right`, `label`; positions persist under
-`hud_positions[element_id]` (staged by main).
+resolver. Elements: `half_left`, `half_right`, `label`, `sc_timer`; positions persist under
+`hud_positions[element_id]` (staged by main). The `sc_timer` shows `Wait n.n` (red) while
+resonance is set but the chain delay has not elapsed and `Go! n.n` (green) while the window is
+open, hiding otherwise; each slot carries a skillchain highlight layer whose icon is
+`images/icons/iconpacks/default/skillchain/<prop lowercase>.png` (fallbacks: radiance →
+`light.png`, umbra → `darkness.png`), resolved per tick through `get_skillchain_prop`.
 
 ## config_ui
 
@@ -137,8 +164,14 @@ no-repeat-nag flag).
 
 `init(opts)` — required: `action` (uses `list_overlay_types`/`get_overlay_type`),
 `get_set(position)` → working-set table, `save_set(position, set)`, `get_player_state`, `texts`,
-`images`; optional: `on_close` (main clears `binder_mode` here) and `ct_presets`
-(`{ label, command }` array; defaults to Rest/Sit/Check/Lock On). `toggle(ctx)` (ctx:
+`images`; optional: `on_close` (main clears `binder_mode` here), `ct_presets`
+(`{ label, command }` array; defaults to Rest/Sit/Check/Lock On), `get_mounts` (owned-mount
+display names — the mount menu then lists these plus a final `'Mount Roulette'` entry writing the
+binding `{ type = 'mount', action = 'Mount Roulette' }`; absent, every `res.mounts` entry is
+offered), and `gamedata` (drives the job-ability category sub-menus from
+`categories('job_abilities')` / `list('job_abilities', category)`; pet-type entries — blood
+pacts, BST Ready moves reclassified via `res.job_abilities`, pet commands — are filtered out of
+the `ja` flow because they belong to the `pet` binding type). `toggle(ctx)` (ctx:
 `active_set`, `display_mode`, `mode`; `'xhb_r'` targets slots 9–16, anything else the left half),
 `close()`, `is_open()`, `on_button(name, pressed)` (routed by main while `binder_mode`; navigation
 pauses while no trigger is held). Remove/Swap write immediately; bind/Replace/Overlay flows write
@@ -146,3 +179,97 @@ on the final Confirm (Replace writes a fresh binding, dropping base + overlays);
 on the drop-A and discards on B-while-grabbed. The subjob overlay captures the player's current
 subjob; overlay flows additionally offer the `noop` type (confirms directly, no action/target
 step).
+
+## gamedata (crossbar adapter)
+
+Generated-resources pipeline and lookup surface over the ported `crossbar/resource_generator`.
+`init(addon_path)`, `ensure_fresh()` (idempotent per session; creates `data/generated/`,
+regenerates on MD5 mismatch against Windower's res sources, falls back to a full regeneration if
+a "current" file fails to load, and serves empty tables — logged once — when generation itself
+fails), `spell(name)`, `ability(name)`, `entry_for(binding)` (`ma` → spells; `ja`/`ws`/`pet` →
+abilities; any other type → nil), `icon_for(binding)`, `recast_key(binding)` →
+`(recast_id or id, res_key)`, `categories(res_key)`, `list(res_key, category)` (entries sorted by
+`en`). `icon_for` resolution order: `binding.icon` → iconpack `custom_icon` (existence-checked
+via `files.exists`, hits **and misses** cached per session) → `default_icon` → nil; returned
+paths are addon-relative **without** a leading slash (generator output carries one — normalized
+away). Generated files `data/generated/crossbar_{spells,abilities}.lua` are loaded via
+`files.read` + `loadstring` inside `pcall`, **never `require`** — regeneration must not be served
+a stale cached module, and tests must stay on the in-memory fs. MD5 freshness reads Windower's
+res sources via `files.new('../../res/spells.lua')` (and `job_abilities.lua` /
+`weapon_skills.lua`) — a **documented read-only walk-up exception**; the
+never-walk-above-`addon_path` rule governs directory creation and writes, not these reads.
+Lookups are keyed by kebab-cased display name (`kebab_casify` is idempotent, so both forms hit);
+the `*.lua.md5` metadata entries are strings and can never leak out as entries.
+
+## icons (crossbar adapter)
+
+Runtime item-icon extraction over the ported `crossbar/icon_extractor` (which owns all raw `io` —
+see the carve-out below). `init(addon_path)`, `item_icon(item_id_or_en_name)` → addon-relative
+path or nil, `close()`. Extracted 32x32 BMPs are cached at `data/icons/items/{item_id}.bmp`
+(id-keyed; names resolve through `res.items`, memoized including misses). Any failure — missing
+DAT, non-Windows env, unresolvable name — returns nil with **one `log.debug` per item per
+session**; `item_icon` never raises into a render path. The extractor is handed an **absolute**
+output path (raw io does not resolve addon-relative paths). Main injects
+`get_item_icon = icons.item_icon` into the HUD opts: item bindings never appear in the generated
+resources, so the extractor is the only real-art source for item slots — the HUD resolves them
+lazily from `render_slot` (never from `tick()`; the adapter's per-item memoization keeps
+refreshes cheap) and falls back to the iconpack `item.png` only when extraction fails.
+
+## mounts (crossbar adapter)
+
+Owned-mount tracking and roulette over the ported `crossbar/mountroulette`. `refresh()`
+(rederives owned mounts from Mounts-category key items), `list()` (sorted display-name array;
+names come from `res.mounts`, never a hardcoded map), `ride_random()` (dismounts if mounted, else
+mounts a random owned mount), `has_mounts()`. No event registration here: main wires incoming
+chunk `0x055` → `refresh()` and also calls it from `init()`. Every entry point no-ops safely
+while logged out.
+
+## skillchain (crossbar adapter)
+
+Thin gate in front of the ported resonance state machine (`crossbar/skillchain/skillchains.lua`);
+main forwards all events. `init({ enabled = getter })` (injected `skillchain_display` getter),
+`on_action(act)` (the **raw** `action` event table — the ported handler wraps it itself),
+`on_incoming_chunk(id, data)`, `on_job_change(job_abbrev)`, `on_zone_change()`, `on_login()`
+(seeds player identity and buffs), `on_logout()`, `tick()` (prerender), `prop_for(id, res_key)` →
+skillchain property name or nil (nil unless the ability would continue the active chain on the
+current target inside the open window), `window()` → `(remaining_delay, remaining_window)`.
+While disabled — or before init, or with no player — every handler no-ops and every query returns
+nil; `on_logout`/`on_zone_change` are pure state clears gated only on `enabled` (at logout the
+player is already gone). The WS/JA property data (`skills.lua`) is © 2017 — later additions never
+resolve.
+
+## crossbar/ subtree (ported third-party)
+
+Ported third-party files live under `xivgamepad/crossbar/` with their BSD-3/MIT license headers
+retained **verbatim** (summarized in
+[`xivgamepad/LICENSES-THIRD-PARTY.md`](../../../xivgamepad/LICENSES-THIRD-PARTY.md)), plus a
+`-- PORT:` comment block directly under the retained header enumerating **every** edit made to
+the file. Only these edit categories are allowed:
+
+1. require-path fixes
+2. event-registration extraction (the file exposes handlers; main registers events)
+3. output/input path redirection (runtime files under `data/`)
+4. Lua 5.1 parse fixes (e.g. parenthesizing string-literal method calls)
+5. global hygiene (localize accidental globals)
+
+The subtree is exempt from the monorepo style/convention audits; everything conventional lives in
+the four adapters above. Require names:
+
+| File | require name |
+|---|---|
+| `xivgamepad/crossbar/icon_extractor.lua` | `crossbar/icon_extractor` |
+| `xivgamepad/crossbar/mountroulette.lua` | `crossbar/mountroulette` |
+| `xivgamepad/crossbar/skillchain/skillchains.lua` | `crossbar/skillchain/skillchains` |
+| `xivgamepad/crossbar/skillchain/skills.lua` | `crossbar/skillchain/skills` |
+| `xivgamepad/crossbar/resource_generator.lua` | `crossbar/resource_generator` |
+| `xivgamepad/crossbar/kebab_casify.lua` | `crossbar/kebab_casify` |
+| `xivgamepad/crossbar/ordered_pairs.lua` | `crossbar/ordered_pairs` |
+| `xivgamepad/crossbar/md5.lua` | `crossbar/md5` |
+
+### io carve-out
+
+> `xivgamepad/crossbar/icon_extractor.lua` is the single reviewed exception to the no-io rule. The
+> Windower files API can neither read an arbitrary absolute path (the FFXI install under
+> `windower.ffxi_path`) nor perform binary seeks into ROM DAT files. This file uses `io.open`
+> read-only against the game's ROM DATs and write-only to produce 32x32 BMP files under
+> `xivgamepad/data/icons/`. No other addon file may use or require `io`.

@@ -21,7 +21,8 @@ Windower `files` API. Player-facing docs: [../wiki/Home.md](../wiki/Home.md).
 | `transparency_active` | `0` | Displayed half while a view is active. |
 | `transparency_inactive` | `100` | Other half while a view is active. |
 | `gestures` | `gamepad.default_gestures()` | Data-driven gesture array, schema below. |
-| `hud_positions` | `{}` | `hud_positions[element_id] = { x, y }`; element ids `half_left`, `half_right`, `label`. Unset elements use the HUD's built-in defaults (`180,520` / `460,520` / `180,494`). |
+| `hud_positions` | `{}` | `hud_positions[element_id] = { x, y }`; element ids `half_left`, `half_right`, `label`, `sc_timer`. Unset elements use the HUD's built-in defaults (`180,520` / `460,520` / `180,494` / `180,470`). |
+| `skillchain_display` | `true` | Skillchain HUD display: the `sc_timer` element and per-slot chain highlights. Toggled from the Display tab; the injected getter gates the skillchain adapter, and a false → true save re-seeds the ported lib. |
 
 ### `sets` default
 
@@ -117,4 +118,43 @@ A resolved binding may additionally carry `count` (HUD badge, supplied by the da
 
 Directory creation mirrors the lib/settings contract: `windower.create_dir` with the **absolute**
 addon-anchored path (separators matched to `addon_path`, never walking above it); all `files` API
-paths are **addon-relative**. Windower `files` API only — no `io.*`, no `os.execute`/`io.popen`.
+paths are **addon-relative**. Windower `files` API only — no `io.*`, no `os.execute`/`io.popen`
+(sole reviewed exception: `crossbar/icon_extractor.lua`, see
+[module-contracts.md](module-contracts.md#io-carve-out)).
+
+## Generated and cached data files (character-independent)
+
+Two regenerable caches live directly under `data/` — both are always safe to delete:
+
+- `data/generated/crossbar_spells.lua` and `data/generated/crossbar_abilities.lua` — Lua sources
+  (`return { ... }`) written by the ported resource generator and loaded by the `gamedata`
+  adapter via `files.read` + `loadstring` (never `require`). Regenerated whenever the embedded
+  MD5 metadata no longer matches Windower's own `res/spells.lua` / `res/job_abilities.lua` /
+  `res/weapon_skills.lua`.
+- `data/icons/items/{item_id}.bmp` — 32x32 item icons extracted from the game DATs by the `icons`
+  adapter, written lazily at render time — the first time an item binding is displayed on the
+  HUD. On extraction failure (non-standard install, missing DATs) nothing is written and the HUD
+  keeps the generic item art.
+
+### Generated-entry schema
+
+Both files map **kebab-cased English names** to entry tables, alongside string-valued MD5
+metadata keys (`["spells.lua.md5"]` in the spells file; `["job_abilities.lua.md5"]` and
+`["weapon_skills.lua.md5"]` in the abilities file):
+
+| Field | spells | job abilities | weapon skills |
+|---|---|---|---|
+| `id` | spell id | ability id | ws id |
+| `en` | English name | English name | English name |
+| `res_key` | `"spells"` | `"job_abilities"` | `"weapon_skills"` |
+| `type` | `"ma"` | `"ja"` or `"pet"` | `"ws"` |
+| `skill` | magic skill name | — | — |
+| `recast_id` | recast timer id | recast timer id | — (absent) |
+| `category` | spell category | kebab-cased category (`abilities`, `phantom-rolls`, `blood-pacts/rage`, …) | weapon-skill skill name |
+| `element` | element name | element name | element name |
+| `default_icon` | `/images/icons/spells/NNNNN.png` | `/images/icons/abilities/NNNNN[.JJ].png` | `/images/icons/weapons/<skill>.png` |
+| `custom_icon` | `<category>/<key>.png` (iconpack-relative) | `<category>/<key>.png` | `weaponskills/<category>/<key>.png` |
+| `mp_cost` / `tp_cost` | mp / 0 | 0 / tp | 0 / 1000 |
+
+`default_icon` values carry a leading slash in the generated file; `gamedata.icon_for` normalizes
+it away and returns addon-relative paths.

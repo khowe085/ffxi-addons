@@ -7,6 +7,13 @@ hybrid Steam Input profile — analog movement, the camera, and no-trigger d-pad
 native gamepad. Player documentation, including the required controller setup, lives in the wiki at
 [docs/xivgamepad/wiki](../docs/xivgamepad/wiki/Home.md).
 
+Beyond the hotbar itself, the addon ports three features from the xivcrossbar lineage: a
+**skillchain display** (a draggable Wait/Go window timer, plus per-slot highlights showing the
+property a weapon skill, job ability, or pet command would chain into), **Mount Roulette** (one
+binding that calls a random mount you own, or dismounts), and **real game icons** for spells,
+abilities, and weapon skills, resolved through a generated resource cache. Player docs:
+[Skillchains and Mounts](../docs/xivgamepad/wiki/Skillchains-and-Mounts.md).
+
 ## Installation
 
 1. Copy the `xivgamepad` folder (and the shared `lib` folder) into your Windower `addons/`
@@ -65,6 +72,10 @@ wiki's [Configuration](../docs/xivgamepad/wiki/Configuration.md) page for detail
 - `images` — HUD slot icons, recast sweeps, and window backdrops
 - `files` — hotbar content (`shared.json` / `job.json`) and `data/debug.log` I/O
 - `resources` — spell/ability/item/mount lists for the Binder and recast lookups
+- `crossbar/` — vendored third-party libraries from the xivcrossbar lineage: skillchain tracking
+  and WS/JA property data, mount roulette, the resource generator (with `kebab_casify`,
+  `ordered_pairs`, `md5`), and the item-icon DAT extractor. Licenses and attribution:
+  [LICENSES-THIRD-PARTY.md](LICENSES-THIRD-PARTY.md)
 
 ## Configuration
 
@@ -86,12 +97,19 @@ abbreviation) and is written by the Binder. Key settings:
 | `transparency_active`     | number  | Transparency of the displayed half while a view is active.               |
 | `transparency_inactive`   | number  | Transparency of the other half while a view is active (default 100).    |
 | `gestures`                | table   | The data-driven gesture list (edited in the Gestures tab).               |
-| `hud_positions`           | table   | Dragged positions of the HUD elements.                                   |
+| `hud_positions`           | table   | Dragged positions of the HUD elements (including the skillchain timer).  |
+| `skillchain_display`      | boolean | Show the skillchain window timer and per-slot chain highlights (default true). |
 | `config_x` / `config_y`   | number  | Position of the configuration window.                                    |
 
 The full schema, including the default key mapping and gesture entries, is documented in
 [docs/xivgamepad/reference/settings-schema.md](../docs/xivgamepad/reference/settings-schema.md);
 player-facing documentation is in the [wiki](../docs/xivgamepad/wiki/Home.md).
+
+Alongside the per-character folders, the addon keeps two character-independent caches under
+`data/`: `data/generated/` holds the generated spell/ability resource tables (rebuilt
+automatically whenever Windower's resource files change, e.g. after a Windower update), and
+`data/icons/items/` is the cache for item icons extracted from the game's DAT files. Both are
+regenerable — deleting either directory is always safe.
 
 Settings are scoped per character and follow the login lifecycle: XIVGamepad can be loaded before
 you log in (it waits), reloads the correct character's settings and hotbars on every login or

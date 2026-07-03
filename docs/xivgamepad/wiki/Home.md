@@ -26,5 +26,6 @@ What to expect:
 | [Controls and Gestures](Controls-and-Gestures.md) | Every gesture the addon ships with, precedence rules, and what pauses in menus, chat, and cutscenes. |
 | [Hotbar Sets and Display Modes](Hotbar-Sets-and-Display-Modes.md) | The 8 set positions, shared vs job sets, the six views, slot addressing, cycling, and mode switching. |
 | [Using the Binder](Using-the-Binder.md) | Assigning actions to slots in-game with the controller, overlays, swapping, and reordering. |
+| [Skillchains and Mounts](Skillchains-and-Mounts.md) | The skillchain window timer and slot highlights, and the Mount Roulette binding. |
 | [Configuration](Configuration.md) | The `//xg config` window: all four tabs, staging, and HUD dragging. |
 | [Troubleshooting / FAQ](Troubleshooting-FAQ.md) | Fixes for the common problems, and where your files live. |
