@@ -820,6 +820,43 @@ test('a gui built with no callbacks survives clicks and drag without error', fun
   assert_true(gui:handle_mouse(2, 40, 45), 'release consumed (no on_move)')
 end)
 
+test('set_tabs while open keeps the recreated tab-bar labels visible', function()
+  -- Regression: install_tabs recreates the labels hidden; a set_tabs on an
+  -- open multi-tab window (an addon refreshing its body after an edit) must
+  -- show them again or the tab bar goes blank while staying clickable.
+  local gui = make_gui()
+  gui:show({ text_tab('Alpha', 2), text_tab('Beta', 2) })
+  gui:set_tabs({ text_tab('Alpha', 3), text_tab('Beta', 3) })
+  local labels = gui:_tab_labels_for_test()
+  assert_eq(2, #labels, 'both labels recreated')
+  for i, label in ipairs(labels) do
+    assert_eq(true, label._visible, 'label ' .. i .. ' visible after set_tabs while open')
+  end
+  -- The bar stays functional: clicking the second label switches tabs.
+  local r = gui:_rects_for_test().tabs[2]
+  assert_true(gui:handle_mouse(1, r.x + 2, r.y + 2, 0), 'tab click consumed')
+  assert_true(contains(gui:_body_text_for_test(), 'Beta line 1'), 'clicked tab rendered')
+end)
+
+test('set_tabs on a closed window leaves the labels hidden', function()
+  local gui = make_gui()
+  gui:show({ text_tab('Alpha', 2), text_tab('Beta', 2) })
+  gui:hide()
+  gui:set_tabs({ text_tab('Alpha', 3), text_tab('Beta', 3) })
+  for i, label in ipairs(gui:_tab_labels_for_test()) do
+    assert_eq(false, label._visible, 'label ' .. i .. ' hidden while window closed')
+  end
+end)
+
+test('set_tabs down to a single tab keeps the tab bar hidden while open', function()
+  local gui = make_gui()
+  gui:show({ text_tab('Alpha', 2), text_tab('Beta', 2) })
+  gui:set_tabs({ text_tab('Only', 3) })
+  for i, label in ipairs(gui:_tab_labels_for_test()) do
+    assert_eq(false, label._visible, 'label ' .. i .. ' hidden for a single-tab window')
+  end
+end)
+
 -- ----
 
 io.write(string.format('test_config_gui: %d passed, %d failed\n', pass, fail))

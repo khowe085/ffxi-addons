@@ -202,3 +202,23 @@ package.loaded['texts']     = texts
 package.loaded['images']    = images
 package.loaded['files']     = files
 package.loaded['resources'] = res
+
+-- Additive extension (Task 2b): recast sources for the HUD's tick(). Tests
+-- populate _spell_recasts (1/60ths of a second) / _ability_recasts (seconds)
+-- by recast_id, or nil out the getters to exercise graceful absence. _reset
+-- is wrapped (not modified) so existing behavior is untouched and the getters
+-- are restored after an absence test.
+windower.ffxi._spell_recasts = {}
+windower.ffxi._ability_recasts = {}
+local function install_recast_getters()
+  windower.ffxi.get_spell_recasts = function() return windower.ffxi._spell_recasts end
+  windower.ffxi.get_ability_recasts = function() return windower.ffxi._ability_recasts end
+end
+install_recast_getters()
+local base_reset = windower._reset
+windower._reset = function()
+  base_reset()
+  windower.ffxi._spell_recasts = {}
+  windower.ffxi._ability_recasts = {}
+  install_recast_getters()
+end
