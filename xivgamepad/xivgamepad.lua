@@ -707,6 +707,9 @@ hud_opts = function()
     images                = images,
     gamedata              = gamedata,
     resolve_binding       = action.resolve_binding,
+    -- First call per item does the DAT extraction (cached under
+    -- data/icons/items thereafter; failure -> nil -> generic type icon).
+    get_item_icon         = function(item) return icons.item_icon(item) end,
     get_player_state      = function() return player_state end,
     get_skillchain_prop   = function(binding) return skillchain_prop(binding) end,
     get_skillchain_window = function() return skillchain.window() end,

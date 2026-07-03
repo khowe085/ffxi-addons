@@ -431,7 +431,16 @@ binding type special-cases the action name `'Mount Roulette'` → `run_action('m
 
 ### HUD contract additions
 
-- `hud.init` opts gain `gamedata` and `get_skillchain_prop(binding)`.
+- `hud.init` opts gain `gamedata`, `get_skillchain_prop(binding)`, `get_skillchain_window()`
+  (→ remaining_delay, remaining_window — drives the `sc_timer` element; shipped alongside
+  `get_skillchain_prop` but previously omitted here), and `get_item_icon(name_or_id)`
+  (→ addon-relative path or nil; main wires it as a thin closure over `icons.item_icon`).
+  All are optional and degrade to the pre-port behavior when absent.
+- Item-slot icon resolution (`type == 'item'`): `gamedata.icon_for` (returns the `binding.icon`
+  user override when set; items are never in the generated resources, so it otherwise misses) →
+  `binding.icon` → `get_item_icon(binding.action)` → `TYPE_ICONS.item`. Resolved during
+  refresh/render, never in `tick()`; the first call per item performs the DAT extraction and is
+  cached (or failure-memoized) by the icons adapter thereafter.
 - New draggable element id `sc_timer` ("Wait n.n" / "Go! n.n"), position persisted under
   `hud_positions.sc_timer` via the existing hud_positions machinery.
 - Per-slot skillchain **highlight layer** resolved during `tick()` (time-windowed within the chain

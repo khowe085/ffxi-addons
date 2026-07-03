@@ -5,13 +5,14 @@
 --
 -- Everything arrives via init opts (settings table, addon_path, texts/images
 -- libs, resolve_binding, get_player_state, on_element_move, and the optional
--- crossbar-port members gamedata, get_skillchain_prop, get_skillchain_window)
--- so the module never requires main, action, or the adapters. Every optional
--- opt degrades: without gamedata the res-scan/TYPE_ICONS paths apply, and
--- without the skillchain getters the highlight layer and sc_timer stay
--- hidden. hud.on_mouse(mtype, x, y, delta) is a contract-consistent
--- addition: main feeds its mouse event here; it returns true only while it
--- consumes a drag interaction.
+-- crossbar-port members gamedata, get_item_icon, get_skillchain_prop,
+-- get_skillchain_window) so the module never requires main, action, or the
+-- adapters. Every optional opt degrades: without gamedata the res-scan/
+-- TYPE_ICONS paths apply, without get_item_icon item slots keep the generic
+-- type icon, and without the skillchain getters the highlight layer and
+-- sc_timer stay hidden. hud.on_mouse(mtype, x, y, delta) is a
+-- contract-consistent addition: main feeds its mouse event here; it returns
+-- true only while it consumes a drag interaction.
 --
 -- Data-driven slot decorations: a resolved binding may carry `count` (item /
 -- ninja tool / stratagem badge, computed upstream), `usable = false`
@@ -262,6 +263,7 @@ function hud.init(opts)
   state.get_player_state      = opts.get_player_state
   state.on_element_move       = opts.on_element_move
   state.gamedata              = opts.gamedata
+  state.get_item_icon         = opts.get_item_icon
   state.get_skillchain_prop   = opts.get_skillchain_prop
   state.get_skillchain_window = opts.get_skillchain_window
   state.drag = nil
@@ -457,12 +459,21 @@ find_resource = function(tbl, name)
   return nil
 end
 
+-- Items never appear in the generated resources, so gamedata.icon_for always
+-- misses them; the injected extractor is their only art source before the
+-- generic type icon. Called from render_slot (never tick), so the extractor's
+-- per-item memoization keeps refreshes cheap.
 icon_path = function(binding)
   if state.gamedata then
     local path = state.gamedata.icon_for(binding)
     if path ~= nil then return path end
   end
-  return binding.icon or TYPE_ICONS[binding.type] or DEFAULT_TYPE_ICON
+  if binding.icon then return binding.icon end
+  if binding.type == 'item' and state.get_item_icon then
+    local path = state.get_item_icon(binding.action)
+    if path ~= nil then return path end
+  end
+  return TYPE_ICONS[binding.type] or DEFAULT_TYPE_ICON
 end
 
 recast_id_for = function(binding)

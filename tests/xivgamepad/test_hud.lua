@@ -505,6 +505,57 @@ test('without gamedata the icon fallback chain is unchanged', function()
     hud._layers_for_test(5).icon:path(), 'TYPE_ICONS still applies')
 end)
 
+-- ---- item icon extraction ----
+
+test('get_item_icon supplies item slot art and is only consulted at render', function()
+  local calls = {}
+  fresh(nil, {
+    get_item_icon = function(item)
+      table.insert(calls, item)
+      return 'data/icons/items/4128.bmp'
+    end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  assert_eq(ADDON_PATH .. 'data/icons/items/4128.bmp',
+    hud._layers_for_test(9).icon:path(), 'extracted icon used for the item slot')
+  assert_eq('Hi-Potion', calls[1], 'binding.action forwarded')
+  assert_eq(1, #calls, 'only the item binding consults the extractor')
+  hud.tick()
+  hud.tick()
+  assert_eq(1, #calls, 'tick never re-resolves item icons')
+end)
+
+test('get_item_icon nil falls back to the item type icon', function()
+  fresh(nil, {
+    get_item_icon = function() return nil end,
+  })
+  hud.show()
+  hud.refresh(make_view())
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/item.png',
+    hud._layers_for_test(9).icon:path(), 'TYPE_ICONS item fallback on extraction failure')
+end)
+
+test('binding.icon overrides get_item_icon for item slots', function()
+  fresh(nil, {
+    get_item_icon = function() return 'data/icons/items/4128.bmp' end,
+  })
+  hud.show()
+  local view = make_view()
+  view.slots[9].icon = 'icons/potion.png'
+  hud.refresh(view)
+  assert_eq(ADDON_PATH .. 'icons/potion.png',
+    hud._layers_for_test(9).icon:path(), 'user override wins over extraction')
+end)
+
+test('without get_item_icon item slots keep the type icon', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/item.png',
+    hud._layers_for_test(9).icon:path(), 'legacy TYPE_ICONS path when the opt is absent')
+end)
+
 test('recast and tooltip lookups consult gamedata first, res scan as fallback', function()
   fresh(nil, {
     gamedata = {

@@ -139,7 +139,10 @@ icons_stub.init      = function(path)
   icons_stub._init_count = icons_stub._init_count + 1
   icons_stub._init_path  = path
 end
-icons_stub.item_icon = function() return nil end
+icons_stub.item_icon = function(item)
+  table.insert(icons_stub._item_calls, item)
+  return icons_stub._item_icon
+end
 icons_stub.close     = function() icons_stub._close_count = icons_stub._close_count + 1 end
 
 mounts_stub.refresh     = function()
@@ -254,6 +257,8 @@ local function reset_stubs()
   icons_stub._init_count  = 0
   icons_stub._init_path   = nil
   icons_stub._close_count = 0
+  icons_stub._item_calls  = {}
+  icons_stub._item_icon   = nil
 
   mounts_stub._refresh_count = 0
   mounts_stub._ride_count    = 0
@@ -989,6 +994,19 @@ test('hud.init opts carry gamedata and the skillchain accessors', function()
   local delay, window = opts.get_skillchain_window()
   assert_eq(2.5,  delay,  'window delay from skillchain.window')
   assert_eq(4.75, window, 'window remainder from skillchain.window')
+end)
+
+test('hud.init opts carry get_item_icon delegating to icons.item_icon', function()
+  fresh()
+  local opts = hud_stub._init_opts
+  assert_eq('function', type(opts.get_item_icon), 'get_item_icon injected')
+  icons_stub._item_icon = 'data/icons/items/4128.bmp'
+  assert_eq('data/icons/items/4128.bmp', opts.get_item_icon('Hi-Potion'),
+    'extracted path forwarded from icons.item_icon')
+  assert_eq('Hi-Potion', icons_stub._item_calls[1], 'item name forwarded verbatim')
+  icons_stub._item_icon = nil
+  assert_eq(nil, opts.get_item_icon('Bogus Tonic'), 'extraction failure surfaces as nil')
+  assert_eq(2, #icons_stub._item_calls, 'each call reaches the adapter')
 end)
 
 test('get_skillchain_prop composes entry_for with prop_for for ws and ja', function()
