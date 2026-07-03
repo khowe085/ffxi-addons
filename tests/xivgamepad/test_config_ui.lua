@@ -42,6 +42,7 @@ local function make_staged()
     config_x = 100,
     config_y = 100,
     hide_empty_slots = false,
+    skillchain_display = true,
     transparency_standard = 0,
     transparency_active = 0,
     transparency_inactive = 100,
@@ -155,6 +156,7 @@ test('mutators without a staging session are safe no-ops', function()
   config_ui.cycle_display_set('wxhb_l')
   config_ui.toggle_display_half('wxhb_l')
   config_ui.toggle_hide_empty_slots()
+  config_ui.toggle_skillchain_display()
   config_ui.adjust_transparency('standard', 10)
   config_ui.add_gesture({ id = 'x' })
   config_ui.add_gesture_template()
@@ -301,6 +303,43 @@ test('toggle_hide_empty_slots flips the boolean', function()
   assert_eq(true, current.hide_empty_slots, 'false -> true')
   config_ui.toggle_hide_empty_slots()
   assert_eq(false, current.hide_empty_slots, 'true -> false')
+end)
+
+test('Display tab renders the skillchain_display toggle row', function()
+  setup()
+  local tab = config_ui.build_tabs(current)[2]
+  local idx
+  for i, text in ipairs(row_texts(tab)) do
+    if text:find('skillchain_display', 1, true) then idx = i end
+  end
+  assert_true(idx ~= nil, 'skillchain_display row present')
+  assert_true(tab.rows[idx].text:find('skillchain_display: true', 1, true) ~= nil,
+    'row renders the staged value')
+  assert_true(tab.rows[idx].on_click ~= nil, 'row is clickable')
+end)
+
+test('toggle_skillchain_display flips the boolean through on_change', function()
+  setup()
+  config_ui.toggle_skillchain_display()
+  assert_eq(false, current.skillchain_display, 'true -> false')
+  assert_eq('skillchain_display', changes[1].key, 'staged under its settings key')
+  assert_eq(false, changes[1].value, 'flipped value handed to on_change')
+  config_ui.toggle_skillchain_display()
+  assert_eq(true, current.skillchain_display, 'false -> true')
+end)
+
+test('clicking the skillchain_display row stages the flipped value', function()
+  setup(false)
+  local tab = config_ui.build_tabs(current)[2]
+  local idx
+  for i, text in ipairs(row_texts(tab)) do
+    if text:find('skillchain_display', 1, true) then idx = i end
+  end
+  tab.rows[idx].on_click(0)
+  assert_eq(1, #changes, 'one change staged')
+  assert_eq('skillchain_display', changes[1].key, 'routed through on_change')
+  assert_eq(false, changes[1].value, 'flipped value staged, staged table untouched')
+  assert_eq(true, current.skillchain_display, 'module never writes the staged table')
 end)
 
 test('adjust_transparency steps and clamps to 0..100', function()

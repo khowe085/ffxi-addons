@@ -1,23 +1,30 @@
 -- Lifecycle tests for the xivgamepad main entry point.
 --
--- The frontend modules (hud/config_ui/tester/wizard/binder) are built in
--- parallel tasks and DO NOT exist in this worktree: complete recording stubs
--- for all five (plus the logger) are preloaded into package.loaded BEFORE the
--- main module is loaded, exactly as the contracts require. They are cleared
--- again at the end of this file so later manifest files load the real modules.
+-- The frontend modules (hud/config_ui/tester/wizard/binder) and the crossbar
+-- adapters (gamedata/icons/mounts/skillchain) are built in parallel tasks:
+-- complete recording stubs for all of them (plus the logger) are preloaded
+-- into package.loaded BEFORE the main module is loaded, exactly as the
+-- contracts require. They are cleared again at the end of this file so later
+-- manifest files load the real modules.
 
--- Frontend/logger recording stubs (frozen contract surfaces only)
+-- Frontend/adapter/logger recording stubs (frozen contract surfaces only)
 
-local hud_stub       = {}
-local config_ui_stub = {}
-local tester_stub    = {}
-local wizard_stub    = {}
-local binder_stub    = {}
-local log_stub       = {}
+local call_order      = {}
+local hud_stub        = {}
+local config_ui_stub  = {}
+local tester_stub     = {}
+local wizard_stub     = {}
+local binder_stub     = {}
+local gamedata_stub   = {}
+local icons_stub      = {}
+local mounts_stub     = {}
+local skillchain_stub = {}
+local log_stub        = {}
 
 hud_stub.init          = function(opts)
   hud_stub._init_opts  = opts
   hud_stub._init_count = hud_stub._init_count + 1
+  table.insert(call_order, 'hud.init')
 end
 hud_stub.show          = function() hud_stub._visible = true end
 hud_stub.hide          = function() hud_stub._visible = false end
@@ -105,6 +112,78 @@ binder_stub.on_button = function(name, pressed)
   table.insert(binder_stub._buttons, { name = name, pressed = pressed })
 end
 
+gamedata_stub.init         = function(path)
+  gamedata_stub._init_count = gamedata_stub._init_count + 1
+  gamedata_stub._init_path  = path
+  table.insert(call_order, 'gamedata.init')
+end
+gamedata_stub.ensure_fresh = function()
+  gamedata_stub._ensure_count = gamedata_stub._ensure_count + 1
+  table.insert(call_order, 'gamedata.ensure_fresh')
+end
+gamedata_stub.recast_key   = function(binding)
+  local entry = gamedata_stub._recasts[binding and binding.action or '']
+  if entry then return entry[1], entry[2] end
+  return nil
+end
+gamedata_stub.spell        = function() return nil end
+gamedata_stub.ability      = function() return nil end
+gamedata_stub.entry_for    = function() return nil end
+gamedata_stub.icon_for     = function() return nil end
+gamedata_stub.categories   = function() return {} end
+gamedata_stub.list         = function() return {} end
+
+icons_stub.init      = function(path)
+  icons_stub._init_count = icons_stub._init_count + 1
+  icons_stub._init_path  = path
+  table.insert(call_order, 'icons.init')
+end
+icons_stub.item_icon = function() return nil end
+icons_stub.close     = function() icons_stub._close_count = icons_stub._close_count + 1 end
+
+mounts_stub.refresh     = function()
+  mounts_stub._refresh_count = mounts_stub._refresh_count + 1
+  table.insert(call_order, 'mounts.refresh')
+end
+mounts_stub.list        = function() return mounts_stub._list end
+mounts_stub.ride_random = function() mounts_stub._ride_count = mounts_stub._ride_count + 1 end
+mounts_stub.has_mounts  = function() return #mounts_stub._list > 0 end
+
+skillchain_stub.init              = function(opts)
+  skillchain_stub._init_count = skillchain_stub._init_count + 1
+  skillchain_stub._init_opts  = opts
+  table.insert(call_order, 'skillchain.init')
+end
+skillchain_stub.on_login          = function()
+  skillchain_stub._login_count = skillchain_stub._login_count + 1
+  table.insert(call_order, 'skillchain.on_login')
+end
+skillchain_stub.on_logout         = function()
+  skillchain_stub._logout_count = skillchain_stub._logout_count + 1
+end
+skillchain_stub.on_action         = function(act)
+  table.insert(skillchain_stub._actions, act)
+end
+skillchain_stub.on_incoming_chunk = function(id, data)
+  table.insert(skillchain_stub._chunks, { id = id, data = data })
+end
+skillchain_stub.on_job_change     = function(job)
+  table.insert(skillchain_stub._jobs, job)
+end
+skillchain_stub.on_zone_change    = function()
+  skillchain_stub._zone_count = skillchain_stub._zone_count + 1
+end
+skillchain_stub.tick              = function()
+  skillchain_stub._tick_count = skillchain_stub._tick_count + 1
+end
+skillchain_stub.prop_for          = function(id, res_key)
+  table.insert(skillchain_stub._prop_calls, { id = id, res_key = res_key })
+  return skillchain_stub._prop
+end
+skillchain_stub.window            = function()
+  return skillchain_stub._window[1], skillchain_stub._window[2]
+end
+
 log_stub.init      = function(path) log_stub._init_path = path end
 log_stub.debug     = function() end
 log_stub.info      = function(fmt, ...)
@@ -165,6 +244,34 @@ local function reset_stubs()
   binder_stub._last_ctx  = nil
   binder_stub._buttons   = {}
 
+  call_order = {}
+
+  gamedata_stub._init_count   = 0
+  gamedata_stub._init_path    = nil
+  gamedata_stub._ensure_count = 0
+  gamedata_stub._recasts      = {}
+
+  icons_stub._init_count  = 0
+  icons_stub._init_path   = nil
+  icons_stub._close_count = 0
+
+  mounts_stub._refresh_count = 0
+  mounts_stub._ride_count    = 0
+  mounts_stub._list          = {}
+
+  skillchain_stub._init_count   = 0
+  skillchain_stub._init_opts    = nil
+  skillchain_stub._login_count  = 0
+  skillchain_stub._logout_count = 0
+  skillchain_stub._zone_count   = 0
+  skillchain_stub._tick_count   = 0
+  skillchain_stub._actions      = {}
+  skillchain_stub._chunks       = {}
+  skillchain_stub._jobs         = {}
+  skillchain_stub._prop_calls   = {}
+  skillchain_stub._prop         = nil
+  skillchain_stub._window       = { 0, 0 }
+
   log_stub._init_path = nil
   log_stub._debug     = false
   log_stub._infos     = {}
@@ -172,12 +279,16 @@ local function reset_stubs()
   log_stub._set_calls = {}
 end
 
-package.loaded['log']       = log_stub
-package.loaded['hud']       = hud_stub
-package.loaded['config_ui'] = config_ui_stub
-package.loaded['tester']    = tester_stub
-package.loaded['wizard']    = wizard_stub
-package.loaded['binder']    = binder_stub
+package.loaded['log']        = log_stub
+package.loaded['hud']        = hud_stub
+package.loaded['config_ui']  = config_ui_stub
+package.loaded['tester']     = tester_stub
+package.loaded['wizard']     = wizard_stub
+package.loaded['binder']     = binder_stub
+package.loaded['gamedata']   = gamedata_stub
+package.loaded['icons']      = icons_stub
+package.loaded['mounts']     = mounts_stub
+package.loaded['skillchain'] = skillchain_stub
 
 local settings = require('lib.settings.settings')
 
@@ -308,6 +419,79 @@ test('init passes the contract opts to hud.init', function()
   assert(opts.get_player_state() == a._get_player_state(), 'player_state accessor works')
   assert(type(opts.on_element_move) == 'function', 'on_element_move passed')
   assert(opts.texts ~= nil and opts.images ~= nil, 'ui libraries passed')
+end)
+
+test('init runs the crossbar adapters in order before hud.init', function()
+  windower.ffxi._player = make_player()
+  vfs = {}
+  vfs[settings_path('TestChar')] = '{"key_mapping_complete":true}'
+  local a = load_addon()
+  a.init()
+  assert_eq('gamedata.init gamedata.ensure_fresh icons.init mounts.refresh '
+    .. 'skillchain.init skillchain.on_login hud.init',
+    table.concat(call_order, ' '),
+    'adapters initialize after settings load and before hud.init')
+  assert_eq(addon_path, gamedata_stub._init_path, 'gamedata anchored at addon_path')
+  assert_eq(addon_path, icons_stub._init_path,    'icons anchored at addon_path')
+end)
+
+test('skillchain gate reads the live skillchain_display setting', function()
+  windower.ffxi._player = make_player()
+  vfs = {}
+  vfs[settings_path('TestChar')] = '{"key_mapping_complete":true}'
+  local a = load_addon()
+  a.init()
+  assert_eq(true, a._get_live().skillchain_display, 'skillchain_display defaults to true')
+  local enabled = skillchain_stub._init_opts.enabled
+  assert(type(enabled) == 'function', 'enabled getter injected')
+  assert_eq(true, enabled(), 'getter reads the default')
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'skillchain_display', false)
+  a.dispatch('save')
+  assert_eq(false, enabled(), 'getter follows the committed live settings table')
+end)
+
+test('re-login reruns per-login adapter work; gamedata pipeline runs once', function()
+  windower.ffxi._player = make_player()
+  vfs = {}
+  vfs[settings_path('TestChar')] = '{"key_mapping_complete":true}'
+  local a = load_addon()
+  a.init()
+  local chunk_handler  = windower._events['incoming chunk']
+  local action_handler = windower._events['action']
+  assert(type(chunk_handler) == 'function',  'incoming chunk handler registered at load')
+  assert(type(action_handler) == 'function', 'action handler registered at load')
+  a.init()
+  assert_eq(1, gamedata_stub._init_count,    're-login does not re-run gamedata.init')
+  assert_eq(1, gamedata_stub._ensure_count,  're-login does not re-run ensure_fresh')
+  assert_eq(2, icons_stub._init_count,       'icons session caches reset per login')
+  assert_eq(2, mounts_stub._refresh_count,   'mounts rederived per login')
+  assert_eq(2, skillchain_stub._init_count,  'skillchain gate re-injected per login')
+  assert_eq(2, skillchain_stub._login_count, 'skillchain login seeded per login')
+  assert(windower._events['incoming chunk'] == chunk_handler,
+    're-init does not re-register the incoming chunk handler')
+  assert(windower._events['action'] == action_handler,
+    're-init does not re-register the action handler')
+end)
+
+test('logout forwards to skillchain.on_logout', function()
+  windower.ffxi._player = make_player()
+  vfs = {}
+  vfs[settings_path('TestChar')] = '{"key_mapping_complete":true}'
+  local a = load_addon()
+  a.init()
+  windower._events['logout']()
+  assert_eq(1, skillchain_stub._logout_count, 'skillchain state cleared on logout')
+end)
+
+test('unload closes the icon extractor', function()
+  windower.ffxi._player = make_player()
+  vfs = {}
+  vfs[settings_path('TestChar')] = '{"key_mapping_complete":true}'
+  local a = load_addon()
+  a.init()
+  windower._events['unload']()
+  assert_eq(1, icons_stub._close_count, 'icons.close called on unload')
 end)
 
 test('init is idempotent: one poll chain, stale config session cleared', function()
@@ -578,6 +762,8 @@ test('job change updates player_state and reloads job sets', function()
   windower._events['job change']()
   assert_eq('SCH', a._get_player_state().main_job, 'main job updated')
   assert_eq('WHM', a._get_player_state().sub_job,  'sub job updated')
+  assert_eq('SCH', skillchain_stub._jobs[#skillchain_stub._jobs],
+    'new main job abbreviation forwarded to skillchain')
   windower._commands = {}
   a.dispatch_gesture('execute_slot', { display_mode = 'xhb_l', slot = 1 })
   assert(contains(table.concat(windower._commands, '\n'), 'input /ma "Cure" <me>'),
@@ -634,16 +820,21 @@ test('zone change resets input state without error', function()
   local ok = pcall(function() windower._events['zone change']() end)
   assert_eq(true, ok, 'zone change handler must not error')
   assert_eq(true, hud_stub._visible, 'HUD still visible after zone change')
+  assert_eq(1, skillchain_stub._zone_count, 'zone change forwarded to skillchain')
 end)
 
 -- ----
 
-package.loaded['log']       = nil
-package.loaded['hud']       = nil
-package.loaded['config_ui'] = nil
-package.loaded['tester']    = nil
-package.loaded['wizard']    = nil
-package.loaded['binder']    = nil
+package.loaded['log']        = nil
+package.loaded['hud']        = nil
+package.loaded['config_ui']  = nil
+package.loaded['tester']     = nil
+package.loaded['wizard']     = nil
+package.loaded['binder']     = nil
+package.loaded['gamedata']   = nil
+package.loaded['icons']      = nil
+package.loaded['mounts']     = nil
+package.loaded['skillchain'] = nil
 settings.discard()
 windower._reset()
 

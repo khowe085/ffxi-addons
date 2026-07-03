@@ -324,6 +324,12 @@ function config_ui.toggle_hide_empty_slots()
   change('hide_empty_slots', not s.hide_empty_slots)
 end
 
+function config_ui.toggle_skillchain_display()
+  local s = staged()
+  if s == nil then return end
+  change('skillchain_display', not s.skillchain_display)
+end
+
 function config_ui.toggle_skip_cycle(index)
   local s = staged()
   if s == nil or s.sets == nil or s.sets[index] == nil then return end
@@ -402,6 +408,10 @@ display_rows = function(s)
       end,
     }
   end
+  rows[#rows + 1] = {
+    text = 'skillchain_display: ' .. tostring(s.skillchain_display or false),
+    on_click = function() config_ui.toggle_skillchain_display() end,
+  }
   return rows
 end
 

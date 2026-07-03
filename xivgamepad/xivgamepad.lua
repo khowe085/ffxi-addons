@@ -11,6 +11,10 @@ local keyboard     = require('input/keyboard')
 local gamepad      = require('gamepad')
 local action       = require('action')
 local storage      = require('storage')
+local gamedata     = require('gamedata')
+local icons        = require('icons')
+local mounts       = require('mounts')
+local skillchain   = require('skillchain')
 local hud          = require('hud')
 local config_ui    = require('config_ui')
 local tester       = require('tester')
@@ -48,6 +52,7 @@ local NOOP_BIND_KEYS = {
 local binder_mode     = false
 local char_name
 local current_display
+local gamedata_ready  = false
 local gestures_by_id  = {}
 local initialized     = false
 local job_sets        = {}
@@ -91,6 +96,7 @@ local offer_wizard
 local on_binder_close
 local on_buff_gain
 local on_buff_loss
+local on_incoming_chunk
 local on_job_change
 local on_status_change
 local on_zone_change
@@ -101,6 +107,7 @@ local resolve_gesture_action
 local restore_binds
 local set_content
 local set_is_empty
+local skillchain_prop
 local stage_change
 local stage_hud_position
 local start_learn_mode
@@ -215,6 +222,19 @@ function xivgamepad.init()
   job_sets    = storage.load_job(windower.addon_path, char_name)
   index_gestures()
 
+  -- Generated resources are character-independent and the freshness pass
+  -- MD5-hashes Windower's res sources in pure Lua, so the pipeline runs once
+  -- per addon load, not on every login/character switch.
+  if not gamedata_ready then
+    gamedata.init(windower.addon_path)
+    gamedata.ensure_fresh()
+    gamedata_ready = true
+  end
+  icons.init(windower.addon_path)
+  mounts.refresh()
+  skillchain.init({ enabled = function() return live_settings.skillchain_display end })
+  skillchain.on_login()
+
   keyboard.reset()
   keyboard.configure(live_settings.key_mapping)
   keyboard.set_callback(function(button, pressed)
@@ -298,6 +318,7 @@ function xivgamepad.on_logout()
     gamepad.reset()
     hud.set_draggable(false)
     hud.hide()
+    skillchain.on_logout()
   end
   test_mode       = false
   binder_mode     = false
@@ -331,6 +352,7 @@ function xivgamepad.on_unload()
     hud.destroy()
   end
   initialized = false
+  icons.close()
   restore_binds()
 end
 
@@ -373,6 +395,7 @@ end
 
 function xivgamepad.setup_close_save()
   if not staged_settings then return end
+  local sc_was_enabled = live_settings.skillchain_display
   live_settings   = settings_lib.commit(staged_settings, windower.addon_path)
   staged_settings = nil
   config_ui.close()
@@ -380,6 +403,14 @@ function xivgamepad.setup_close_save()
   keyboard.configure(live_settings.key_mapping)
   gamepad.set_gestures(live_settings.gestures)
   index_gestures()
+  -- Enabling skillchain_display mid-session must re-seed the ported lib:
+  -- with the toggle off at init the adapter's gated on_login skipped its
+  -- player/buff seeding, and resonance handlers would nil-index until the
+  -- next natural seed. The adapter's active() gate makes this call a safe
+  -- no-op in every other situation.
+  if not sc_was_enabled and live_settings.skillchain_display then
+    skillchain.on_login()
+  end
   hud.init(hud_opts())
   xivgamepad.refresh_hud()
 end
@@ -440,6 +471,8 @@ binder_opts = function()
     action           = action,
     texts            = texts,
     images           = images,
+    gamedata         = gamedata,
+    get_mounts       = mounts.list,
     get_set          = function(position) return set_content(position) end,
     save_set         = function(position, set_table) binder_save_set(position, set_table) end,
     get_player_state = function() return player_state end,
@@ -498,6 +531,7 @@ build_defaults = function()
       expand_rt_lt = { set = 4, half = 'right' },
     },
     hide_empty_slots = false,
+    skillchain_display = true,
     transparency_standard = 0,
     transparency_active = 0,
     transparency_inactive = 100,
@@ -667,13 +701,16 @@ end
 
 hud_opts = function()
   return {
-    settings         = live_settings,
-    addon_path       = windower.addon_path,
-    texts            = texts,
-    images           = images,
-    resolve_binding  = action.resolve_binding,
-    get_player_state = function() return player_state end,
-    on_element_move  = function(element_id, x, y)
+    settings              = live_settings,
+    addon_path            = windower.addon_path,
+    texts                 = texts,
+    images                = images,
+    gamedata              = gamedata,
+    resolve_binding       = action.resolve_binding,
+    get_player_state      = function() return player_state end,
+    get_skillchain_prop   = function(binding) return skillchain_prop(binding) end,
+    get_skillchain_window = function() return skillchain.window() end,
+    on_element_move       = function(element_id, x, y)
       stage_hud_position(element_id, x, y)
     end,
   }
@@ -716,12 +753,24 @@ on_buff_loss = function(buff_id)
   xivgamepad.refresh_hud()
 end
 
+-- No initialized/suspend gate: key-item and resonance tracking are passive
+-- observation, not game effects, so they stay current through menus, chat,
+-- cutscenes, and pre-init chunks. Both adapters no-op themselves while
+-- logged out or (skillchain) disabled.
+on_incoming_chunk = function(id, data)
+  if id == 0x055 then
+    mounts.refresh()
+  end
+  skillchain.on_incoming_chunk(id, data)
+end
+
 on_job_change = function()
   if not initialized then return end
   local player = windower.ffxi.get_player()
   if not player then return end
   player_state.main_job = player.main_job
   player_state.sub_job  = player.sub_job
+  skillchain.on_job_change(player.main_job)
   job_sets = storage.load_job(windower.addon_path, char_name)
   xivgamepad.refresh_hud()
 end
@@ -753,6 +802,7 @@ on_zone_change = function()
   if not initialized then return end
   keyboard.reset()
   gamepad.reset()
+  skillchain.on_zone_change()
   reconcile_player_state()
   xivgamepad.refresh_hud()
 end
@@ -855,6 +905,21 @@ set_is_empty = function(position)
     if content.slots[index] ~= nil then return false end
   end
   return true
+end
+
+-- Frozen composition (contract "HUD contract additions"): only ws/ja/pet
+-- bindings can close a skillchain. The ported skills data and the resonance
+-- tracker are both keyed by the ability/action id (entry.id). job_abilities
+-- entries always carry a recast_id (a 0-255 recast timer slot), so routing
+-- through recast_key would guarantee a lookup miss for every ja/pet binding;
+-- recast_key stays reserved for actual recast-timer lookups.
+skillchain_prop = function(binding)
+  if type(binding) ~= 'table' then return nil end
+  local btype = binding.type
+  if btype ~= 'ws' and btype ~= 'ja' and btype ~= 'pet' then return nil end
+  local entry = gamedata.entry_for(binding)
+  if not entry or not entry.id then return nil end
+  return skillchain.prop_for(entry.id, entry.res_key)
 end
 
 stage_change = function(key, value)
@@ -1003,6 +1068,15 @@ commands = {
   test      = function() xivgamepad.cmd_test() end,
 }
 
+-- Load-time registration: action's registry is module-level state that
+-- survives re-init, and register_action overwrites by name, so a reload
+-- re-registering the same def is harmless.
+action.register_action('mount_roulette', {
+  run         = function() mounts.ride_random() end,
+  description = 'Call a random owned mount (dismounts if mounted)',
+  icon        = 'mount',
+})
+
 windower.register_event('load', function()
   xivgamepad.on_load()
 end)
@@ -1033,6 +1107,7 @@ end)
 
 windower.register_event('prerender', function()
   if initialized then
+    skillchain.tick()
     hud.tick()
   end
 end)
@@ -1055,6 +1130,18 @@ end)
 
 windower.register_event('zone change', function()
   on_zone_change()
+end)
+
+-- Forwarded unconditionally: resonance tracking is passive observation, so it
+-- keeps running through menus, chat, and cutscenes (the dispatch-suspend
+-- policy governs outgoing game effects only); the skillchain adapter no-ops
+-- itself while disabled or logged out.
+windower.register_event('action', function(act)
+  skillchain.on_action(act)
+end)
+
+windower.register_event('incoming chunk', function(id, data)
+  on_incoming_chunk(id, data)
 end)
 
 return xivgamepad
