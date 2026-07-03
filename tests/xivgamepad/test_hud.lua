@@ -10,9 +10,9 @@ local log_stub = { _lines = {} }
 log_stub.debug = function(fmt, ...) table.insert(log_stub._lines, tostring(fmt)) end
 log_stub.info  = log_stub.debug
 log_stub.error = log_stub.debug
-package.loaded['xivgamepad.log'] = log_stub
+package.loaded['log'] = log_stub
 
-local hud = require('xivgamepad.hud')
+local hud = require('hud')
 
 local pass = 0
 local fail = 0

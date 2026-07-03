@@ -1,4 +1,4 @@
-local log = require('xivgamepad.log')
+local log = require('log')
 
 local DEFAULT_MAX_GAP     = 0.33
 local DEFAULT_MAX_HOLD    = 0.25

@@ -2,9 +2,10 @@
 
 Frozen shapes originate in `.planning/xivgamepad-contracts.md`; this page reflects the code as
 shipped. Every module returns its module table; `_`-prefixed functions are test-only accessors.
-Require names: `xivgamepad.log`, `xivgamepad.input.keyboard`, `xivgamepad.gamepad`,
-`xivgamepad.action`, `xivgamepad.storage`, `xivgamepad.hud`, `xivgamepad.config_ui`,
-`xivgamepad.tester`, `xivgamepad.wizard`, `xivgamepad.binder`.
+Require names are `{AddonPath}`-relative — Windower's addon `package.path` covers the addon's
+own directory plus the shared `addons/libs`, not the addons root — so addon-root files use flat
+names and subdirectories use slash-relative names: `log`, `input/keyboard`, `gamepad`, `action`,
+`storage`, `hud`, `config_ui`, `tester`, `wizard`, `binder`.
 
 ## Global wiring rules
 

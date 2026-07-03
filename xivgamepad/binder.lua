@@ -5,7 +5,7 @@
 -- binder never touches the gamepad/keyboard modules.
 --
 -- init(opts) surface -- main (Task 2a) implements and injects all of it:
---   action           the xivgamepad.action module (or equivalent iface). Used
+--   action           the action module (or equivalent iface). Used
 --                    only to enumerate overlay types for the overlay menu:
 --                    action.list_overlay_types() -> sorted name array, and
 --                    action.get_overlay_type(name) -> def, whose
@@ -44,7 +44,7 @@
 -- binding type (blank the base while the condition holds), which confirms
 -- directly with no action or target step.
 
-local log = require('xivgamepad.log')
+local log = require('log')
 local res = require('resources')
 
 local action_iface     = nil

@@ -9,16 +9,17 @@
 -- with the default DIK codes (LT=2, RT=3, A=6, DPAD_RIGHT=11, Ctrl=29,
 -- BACK=Ctrl+2).
 
--- Drop any xivgamepad.* module (stub or stale real instance) left in
--- package.loaded by earlier suite files so this file loads fresh REAL ones.
+-- Drop any addon module (stub or stale real instance) left in package.loaded
+-- by earlier suite files so this file loads fresh REAL ones. Names match the
+-- Windower {AddonPath}-relative require keys (flat for addon-root files,
+-- slash-relative for subdirectories).
+local addon_module_names = {
+  'xivgamepad', 'log', 'gamepad', 'action', 'storage', 'hud',
+  'config_ui', 'tester', 'wizard', 'binder', 'input/keyboard',
+}
+
 local function clear_xivgamepad_modules()
-  local names = {}
-  for name in pairs(package.loaded) do
-    if name == 'xivgamepad' or name:find('^xivgamepad%.') then
-      names[#names + 1] = name
-    end
-  end
-  for _, name in ipairs(names) do
+  for _, name in ipairs(addon_module_names) do
     package.loaded[name] = nil
   end
 end
@@ -127,8 +128,8 @@ test('load before login defers; login shows the HUD and offers the wizard', func
   windower._commands = {}
   windower._events['login']()
   windower._scheduled = {}
-  local hud    = require('xivgamepad.hud')
-  local wizard = require('xivgamepad.wizard')
+  local hud    = require('hud')
+  local wizard = require('wizard')
   assert_eq(true, a._get_flags().initialized,       'initialized on login')
   assert_eq(true, hud._label_for_test():visible(),  'HUD shown on login')
   assert_eq(true, wizard.is_active(),               'wizard offered: key_mapping_complete=false')
@@ -147,7 +148,7 @@ end)
 
 test('LT hold engages XHB-L and A fires the bound slot through the real stack', function()
   local a = fresh({ content = true })
-  local gamepad = require('xivgamepad.gamepad')
+  local gamepad = require('gamepad')
   key(KEY_LT, true)
   windower._run_scheduled()
   assert_eq('xhb_l', gamepad.get_display_mode(), 'hold engaged XHB-L')
@@ -177,7 +178,7 @@ end)
 
 test('config opens the real window; a Sets row click stages; save persists to _fs', function()
   local a = fresh()
-  local config_ui = require('xivgamepad.config_ui')
+  local config_ui = require('config_ui')
   windower._events['addon command']('config')
   assert_eq(true, config_ui.is_open(), 'config window open')
   assert(a._get_staged() ~= nil,       'staging session open')
@@ -212,8 +213,8 @@ end)
 
 test('BACK with a trigger held opens the binder; BACK again closes it cleanly', function()
   local a = fresh({ content = true })
-  local binder  = require('xivgamepad.binder')
-  local gamepad = require('xivgamepad.gamepad')
+  local binder  = require('binder')
+  local gamepad = require('gamepad')
 
   key(KEY_RT, true)
   windower._run_scheduled()
@@ -258,7 +259,7 @@ end)
 
 test('test mode reroutes slot gestures to the real tester and back', function()
   local a = fresh({ content = true })
-  local tester = require('xivgamepad.tester')
+  local tester = require('tester')
   windower._events['addon command']('test')
   assert_eq(true, a._get_flags().test_mode, 'test mode on')
   assert_eq(true, tester.is_open(),         'tester overlay open')
@@ -292,7 +293,7 @@ end)
 
 test('status 4 hides the HUD and halts bare synthesis; status 0 restores both', function()
   local a = fresh()
-  local hud = require('xivgamepad.hud')
+  local hud = require('hud')
   assert_eq(true, hud._label_for_test():visible(), 'HUD visible after login')
 
   windower._events['status change'](4)
@@ -316,9 +317,9 @@ end)
 
 test('unload restores the binds and destroys every UI element without error', function()
   fresh()
-  local hud       = require('xivgamepad.hud')
-  local tester    = require('xivgamepad.tester')
-  local config_ui = require('xivgamepad.config_ui')
+  local hud       = require('hud')
+  local tester    = require('tester')
+  local config_ui = require('config_ui')
   windower._commands = {}
   local ok, err = pcall(function() windower._events['unload']() end)
   assert(ok, 'unload must not error: ' .. tostring(err))

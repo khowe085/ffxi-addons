@@ -1,7 +1,7 @@
 -- Tests for xivgamepad/action.lua: registries, dispatch, resolve_binding,
 -- overlay truth tables, system actions, and the raw-command escape hatch.
 --
--- The real logger (xivgamepad.log, Task 1d) may not exist yet in this
+-- The real logger (xivgamepad/log.lua, Task 1d) may not exist yet in this
 -- worktree, so a recording stub is preloaded via package.loaded before
 -- requiring the module under test (contracts doc: tests own this stub, never
 -- the shared mock).
@@ -10,9 +10,9 @@ local log_stub = { _debug = {}, _info = {}, _error = {} }
 log_stub.debug = function(fmt, ...) table.insert(log_stub._debug, string.format(fmt, ...)) end
 log_stub.info  = function(fmt, ...) table.insert(log_stub._info,  string.format(fmt, ...)) end
 log_stub.error = function(fmt, ...) table.insert(log_stub._error, string.format(fmt, ...)) end
-package.loaded['xivgamepad.log'] = log_stub
+package.loaded['log'] = log_stub
 
-local action = require('xivgamepad.action')
+local action = require('action')
 
 local pass = 0
 local fail = 0

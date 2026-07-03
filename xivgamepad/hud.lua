@@ -17,7 +17,7 @@
 -- Transparency math: settings values are 0 (opaque) .. 100 (invisible);
 -- alpha = round((100 - transparency) * 255 / 100).
 
-local log = require('xivgamepad.log')
+local log = require('log')
 local res = require('resources')
 
 local hud = {}

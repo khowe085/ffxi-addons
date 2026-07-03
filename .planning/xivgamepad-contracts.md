@@ -6,28 +6,31 @@ churn. Do not deviate silently — if a contract proves unworkable, stop and sur
 
 ## Module layout & require paths
 
-Tests run from the repo root (`lua tests/xivgamepad/run_tests.lua`), so the default `./?.lua`
-package path resolves these; in Windower the addons root is on the package path the same way
-(echo's `require('lib.settings.settings')` pattern).
+Windower's addon `package.path` covers the addon's OWN directory (the `{AddonPath}?.lua`
+template) plus the shared `addons/libs` — NOT the addons root. Intra-addon requires therefore
+use flat names for addon-root files and slash-relative names for subdirectories; the xivcrossbar
+submodule (runs in-game) is the reference for this convention (`require('gamepad')`,
+`require('ui/icon_extractor')`). The test harness mirrors it by prepending `xivgamepad/?.lua`
+to `package.path` in `tests/xivgamepad/mock_windower.lua`.
 
 | File | require name |
 |---|---|
-| `xivgamepad/log.lua` | `xivgamepad.log` |
-| `xivgamepad/input/keyboard.lua` | `xivgamepad.input.keyboard` |
-| `xivgamepad/gamepad.lua` | `xivgamepad.gamepad` |
-| `xivgamepad/action.lua` | `xivgamepad.action` |
-| `xivgamepad/storage.lua` | `xivgamepad.storage` |
-| `xivgamepad/hud.lua` | `xivgamepad.hud` |
-| `xivgamepad/config_ui.lua` | `xivgamepad.config_ui` |
-| `xivgamepad/tester.lua` | `xivgamepad.tester` |
-| `xivgamepad/wizard.lua` | `xivgamepad.wizard` |
-| `xivgamepad/binder.lua` | `xivgamepad.binder` |
+| `xivgamepad/log.lua` | `log` |
+| `xivgamepad/input/keyboard.lua` | `input/keyboard` |
+| `xivgamepad/gamepad.lua` | `gamepad` |
+| `xivgamepad/action.lua` | `action` |
+| `xivgamepad/storage.lua` | `storage` |
+| `xivgamepad/hud.lua` | `hud` |
+| `xivgamepad/config_ui.lua` | `config_ui` |
+| `xivgamepad/tester.lua` | `tester` |
+| `xivgamepad/wizard.lua` | `wizard` |
+| `xivgamepad/binder.lua` | `binder` |
 
 - Every module **returns its module table**; test-only accessors are `_`-prefixed functions on that
   table (the echo/test-harness pattern).
-- Modules that log `require('xivgamepad.log')`. During parallel Task-1 development the real logger
+- Modules that log `require('log')`. During parallel Task-1 development the real logger
   may not exist in your worktree: your **test files** preload a stub via
-  `package.loaded['xivgamepad.log'] = stub` *before* requiring your module. Never stub it inside the
+  `package.loaded['log'] = stub` *before* requiring your module. Never stub it inside the
   shared mock.
 - Shared harness: `tests/xivgamepad/mock_windower.lua` + `tests/xivgamepad/run_tests.lua` are seeded
   before parallel work. `run_tests.lua` pre-lists every planned `test_*.lua` and warn-skips absent
@@ -61,7 +64,7 @@ Default mapping (DirectInput key codes; what the recommended Steam profile emits
 Ctrl itself is DIK 29 (LCTRL) / 157 (RCTRL), tracked inside the keyboard module and never a
 virtual button.
 
-## Input module — `xivgamepad.input.keyboard`
+## Input module — `input/keyboard`
 
 ```lua
 keyboard.configure(key_mapping)     -- install/replace the mapping (init and on save)
@@ -77,7 +80,7 @@ keyboard.reset()                    -- clear all held state (login/zone)
 - Ctrl-gated buttons match only when Ctrl is down at the key-down edge; a key's **release maps to
   whatever button its press mapped to**, so a Ctrl release mid-hold cannot strand a pressed button.
 
-## Gamepad module — `xivgamepad.gamepad`
+## Gamepad module — `gamepad`
 
 ```lua
 gamepad.init({ schedule = fn })       -- schedule(fn, seconds): wall-clock one-shot timer.
@@ -131,7 +134,7 @@ Precedence rules are the plan's **Resolution rules** (trigger held ⇒ LB/RB are
 target_previous/target_next; direct-switch and mode_switch require no trigger; RB-held + LB tap is
 intentionally unmapped).
 
-## Logger — `xivgamepad.log`
+## Logger — `log`
 
 ```lua
 log.init(addon_path)   -- anchor data/debug.log at the absolute addon path; repeat-safe
@@ -154,7 +157,7 @@ Depends only on `windower` + `files` (leaf module — no addon requires).
 > `windower.create_dir` takes the **absolute** addon-anchored path. Tests assert relative keys for
 > file content and absolute separator-matched strings for created dirs.
 
-## Action module — `xivgamepad.action`
+## Action module — `action`
 
 ```lua
 action.register_type(code, def)          -- def.execute(binding, ctx); optional def.describe(binding)
@@ -208,7 +211,7 @@ player_state = {
 }
 ```
 
-## Storage — `xivgamepad.storage`
+## Storage — `storage`
 
 ```lua
 storage.load_shared(addon_path, char_name)        -- -> sets table; {} when the file is missing

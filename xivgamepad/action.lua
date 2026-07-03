@@ -3,7 +3,7 @@
 -- through windower.send_command; display/hotbar effects go through the
 -- main-injected host. No settings reads, no windower event registrations.
 
-local log = require('xivgamepad.log')
+local log = require('log')
 
 local action = {}
 

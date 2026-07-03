@@ -1,18 +1,18 @@
 -- Tests for xivgamepad/storage.lua: shared.json / job.json persistence.
 --
--- Preloads a recording stub for xivgamepad.log (contracts.md: never stub
+-- Preloads a recording stub for the log module (contracts.md: never stub
 -- addon modules in the shared mock_windower; test files own this) before
 -- requiring the module under test, so log.error calls on corrupt JSON are
 -- observable without depending on the real logger module existing yet.
 
 local log_calls = {}
-package.loaded['xivgamepad.log'] = {
+package.loaded['log'] = {
   debug = function() end,
   info  = function() end,
   error = function(fmt, ...) table.insert(log_calls, string.format(fmt, ...)) end,
 }
 
-local storage = require('xivgamepad.storage')
+local storage = require('storage')
 
 local pass = 0
 local fail = 0

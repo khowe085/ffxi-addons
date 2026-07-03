@@ -172,12 +172,12 @@ local function reset_stubs()
   log_stub._set_calls = {}
 end
 
-package.loaded['xivgamepad.log']       = log_stub
-package.loaded['xivgamepad.hud']       = hud_stub
-package.loaded['xivgamepad.config_ui'] = config_ui_stub
-package.loaded['xivgamepad.tester']    = tester_stub
-package.loaded['xivgamepad.wizard']    = wizard_stub
-package.loaded['xivgamepad.binder']    = binder_stub
+package.loaded['log']       = log_stub
+package.loaded['hud']       = hud_stub
+package.loaded['config_ui'] = config_ui_stub
+package.loaded['tester']    = tester_stub
+package.loaded['wizard']    = wizard_stub
+package.loaded['binder']    = binder_stub
 
 local settings = require('lib.settings.settings')
 
@@ -638,12 +638,12 @@ end)
 
 -- ----
 
-package.loaded['xivgamepad.log']       = nil
-package.loaded['xivgamepad.hud']       = nil
-package.loaded['xivgamepad.config_ui'] = nil
-package.loaded['xivgamepad.tester']    = nil
-package.loaded['xivgamepad.wizard']    = nil
-package.loaded['xivgamepad.binder']    = nil
+package.loaded['log']       = nil
+package.loaded['hud']       = nil
+package.loaded['config_ui'] = nil
+package.loaded['tester']    = nil
+package.loaded['wizard']    = nil
+package.loaded['binder']    = nil
 settings.discard()
 windower._reset()
 

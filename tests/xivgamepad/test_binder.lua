@@ -12,9 +12,9 @@ local log_stub = { _debug = {}, _info = {}, _error = {} }
 log_stub.debug = function(fmt, ...) table.insert(log_stub._debug, string.format(fmt, ...)) end
 log_stub.info  = function(fmt, ...) table.insert(log_stub._info,  string.format(fmt, ...)) end
 log_stub.error = function(fmt, ...) table.insert(log_stub._error, string.format(fmt, ...)) end
-package.loaded['xivgamepad.log'] = log_stub
+package.loaded['log'] = log_stub
 
-local binder = require('xivgamepad.binder')
+local binder = require('binder')
 
 -- Isolate the action registry: the binder enumerates the LIVE overlay-type
 -- registry of whatever action instance it is handed, and other suite files
@@ -22,9 +22,9 @@ local binder = require('xivgamepad.binder')
 -- private instance for these tests and restore the previous one at file end,
 -- so no registrations leak in either direction and no test depends on
 -- manifest order.
-local prior_action = package.loaded['xivgamepad.action']
-package.loaded['xivgamepad.action'] = nil
-local action = require('xivgamepad.action')
+local prior_action = package.loaded['action']
+package.loaded['action'] = nil
+local action = require('action')
 
 -- Augment shared res fixtures by mutation (never edit the mock): spells across
 -- the magic skill categories, a pet-type job ability, and a mounts table.
@@ -896,7 +896,7 @@ end)
 
 -- Restore the shared action instance (see the isolation note at the top)
 -- before reporting, so it happens even when this file fails the suite.
-package.loaded['xivgamepad.action'] = prior_action
+package.loaded['action'] = prior_action
 
 io.write(string.format('test_binder: %d passed, %d failed\n', pass, fail))
 if fail > 0 then

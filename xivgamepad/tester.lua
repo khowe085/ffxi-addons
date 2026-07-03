@@ -4,7 +4,7 @@
 -- gesture log. Main routes gestures here instead of to actions while test_mode
 -- is set; this module only displays what it is fed.
 
-local log = require('xivgamepad.log')
+local log = require('log')
 
 local tester = {}
 

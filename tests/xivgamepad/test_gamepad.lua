@@ -1,7 +1,7 @@
 -- Preload a logger stub before requiring the module under test: the real
--- xivgamepad.log is built in a parallel task and must never be stubbed in the
+-- log module is built in a parallel task and must never be stubbed in the
 -- shared mock (.planning/xivgamepad-contracts.md).
-package.loaded['xivgamepad.log'] = {
+package.loaded['log'] = {
   init      = function() end,
   debug     = function() end,
   info      = function() end,
@@ -11,7 +11,7 @@ package.loaded['xivgamepad.log'] = {
   is_debug  = function() return false end,
 }
 
-local gamepad = require('xivgamepad.gamepad')
+local gamepad = require('gamepad')
 
 local pass = 0
 local fail = 0
@@ -838,7 +838,7 @@ end)
 
 -- ----
 
-package.loaded['xivgamepad.log'] = nil
+package.loaded['log'] = nil
 
 io.write(string.format('test_gamepad: %d passed, %d failed\n', pass, fail))
 if fail > 0 then

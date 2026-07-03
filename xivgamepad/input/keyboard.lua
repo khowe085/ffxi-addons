@@ -1,4 +1,4 @@
-local log = require('xivgamepad.log')
+local log = require('log')
 
 local DIK_LCTRL = 29
 local DIK_RCTRL = 157

@@ -20,7 +20,7 @@
 -- rejected, naming the owning button. Re-pressing the current button's own
 -- prior key simply re-confirms it.
 
-local log = require('xivgamepad.log')
+local log = require('log')
 
 local wizard = {}
 

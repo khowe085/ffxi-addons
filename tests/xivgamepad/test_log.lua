@@ -1,7 +1,7 @@
--- Earlier test files in the manifest may have preloaded a xivgamepad.log stub;
+-- Earlier test files in the manifest may have preloaded a 'log' stub;
 -- clear it so this file exercises the real module (and its load-time state).
-package.loaded['xivgamepad.log'] = nil
-local log = require('xivgamepad.log')
+package.loaded['log'] = nil
+local log = require('log')
 
 local pass = 0
 local fail = 0
@@ -223,8 +223,8 @@ end)
 
 test('set_debug(true) before init defers the session start until init', function()
   windower._reset()
-  package.loaded['xivgamepad.log'] = nil
-  local uninit = require('xivgamepad.log')
+  package.loaded['log'] = nil
+  local uninit = require('log')
   uninit.set_debug(true)
   assert_eq(true, uninit.is_debug(), 'enabled before init')
   uninit.info('early line')
@@ -242,8 +242,8 @@ end)
 
 test('set_debug(false) before init cancels a pending session start', function()
   windower._reset()
-  package.loaded['xivgamepad.log'] = nil
-  local uninit = require('xivgamepad.log')
+  package.loaded['log'] = nil
+  local uninit = require('log')
   uninit.set_debug(true)
   uninit.set_debug(false)
   uninit.init(win_path)
@@ -253,7 +253,7 @@ end)
 
 -- The two tests above cached throwaway instances; restore the main one so
 -- later manifest files that forget their stub still see a clean real module.
-package.loaded['xivgamepad.log'] = log
+package.loaded['log'] = log
 
 test('unix-style addon_path constructs forward-slash create_dir paths', function()
   fresh(unix_path)

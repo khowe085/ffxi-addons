@@ -20,8 +20,8 @@
 -- wheel events into the tab body).
 
 local config_gui = require('lib.settings.config_gui')
-local action_lib = require('xivgamepad.action')
-local log = require('xivgamepad.log')
+local action_lib = require('action')
+local log = require('log')
 
 local config_ui = {}
 

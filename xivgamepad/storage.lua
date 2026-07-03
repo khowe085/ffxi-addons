@@ -14,7 +14,7 @@
 -- walking above addon_path.
 
 local files = require('files')
-local log   = require('xivgamepad.log')
+local log   = require('log')
 
 local M = {}
 

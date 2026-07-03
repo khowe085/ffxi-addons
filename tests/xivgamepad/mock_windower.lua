@@ -4,8 +4,14 @@
 -- ADDITIVELY ONLY (new stub methods/fields, new fixtures); never change existing
 -- behavior. Resource fixtures are augmented from test files by mutating the
 -- loaded tables (res.spells[n] = {...}), never by editing this file. Never stub
--- xivgamepad modules (e.g. xivgamepad.log) here — test files preload their own
+-- xivgamepad modules (e.g. 'log') here — test files preload their own
 -- stubs via package.loaded before requiring the module under test.
+
+-- Mirror Windower's addon-dir search path ({AddonPath}?.lua): in-game, intra-
+-- addon requires use flat names ('log') and slash-relative subdirectory names
+-- ('input/keyboard'), NOT the addons root. run_tests runs from the repo root,
+-- so prepending the addon dir makes those names resolve exactly as in-game.
+package.path = 'xivgamepad/?.lua;' .. package.path
 
 _addon = {}
 
