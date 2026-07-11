@@ -9,9 +9,11 @@ the window never reach the game.
 HUD elements you dragged. Closing via command behaves exactly like clicking the button.
 
 While the window is open, the **HUD becomes draggable**: grab either hotbar half, the set label,
-or the skillchain timer and move it anywhere. Positions are staged like every other change and
+the skillchain timer, or the RB-held set-selector overlay and move it anywhere. Positions are
+staged like every other change and
 persist on Save. (The skillchain timer only renders while a chain is live — see
-[Skillchains and Mounts](Skillchains-and-Mounts.md).)
+[Skillchains and Mounts](Skillchains-and-Mounts.md) — and the set selector only while RB is held;
+both drag from their saved spot even while not rendered.)
 
 Rows in every tab are edited by **clicking directly on the value** you want to change; each tab's
 header row reminds you what its click zones do. Tabs taller than the window scroll with the mouse

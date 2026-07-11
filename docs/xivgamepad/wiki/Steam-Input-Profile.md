@@ -84,5 +84,29 @@ are still holding it. The profile is built so this can never happen:
 Keep this rule if you customize the profile: never give two hold-together controls the same
 modifier, and never require two `Ctrl`-riding controls (BACK/START/trackpad) held at once.
 
+## Troubleshooting: bare face buttons / START / BACK do nothing
+
+Every layer of the addon's bare-button chain is covered by tests, so when the six discrete
+controls are dead **outside** of trigger holds the cause is almost always the Steam Input profile.
+Check, in order:
+
+1. **The bare outputs exist at all.** In the profile's base (no-modifier) state, A/B/X/Y must emit
+   the plain keys `5`/`6`/`7`/`8`, BACK must emit `Ctrl+1`, and START `Ctrl+2` — exactly the
+   [Key outputs](#key-outputs) table. It is easy to end up with face-button keys defined **only
+   inside trigger action layers** (the hold-LT/hold-RT layers many profiles add): then the addon
+   sees faces perfectly while a trigger is held but nothing bare. **That split — faces work with a
+   trigger held, dead bare — is the tell-tale symptom of a layer-only binding.**
+2. **Bare A and B are supposed to look like "nothing".** Bare A synthesizes **Enter** (confirm /
+   open the chat line) and bare B synthesizes **Escape** (cancel / close it) — by design, for menu
+   navigation. Outside a menu, A visibly opens the chat input line and B closes it; if you were
+   expecting a flashier effect, test them over an open game menu before concluding they are dead.
+3. **Re-run the wizard after fixing the profile.** If the profile was rebuilt or re-bound, run
+   `//xg learn` again so the addon's key mapping matches what the profile now emits — the wizard
+   will refuse to advance on a step whose key never arrives, which also makes it a handy per-button
+   probe for exactly this failure.
+
+X (`input /map`) and Y (`input /jump`) produce visible in-game effects and are the quickest bare
+buttons to sanity-check with.
+
 After building the profile, run the [Key-Capture Wizard](Installation-and-Setup.md) so the addon
 records exactly the keys your profile emits.

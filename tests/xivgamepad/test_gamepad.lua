@@ -370,7 +370,7 @@ test('display engagement and execute_slot dispatch are unaffected by a nearby "a
   assert_eq('xhb_l', gamepad.get_display_mode(), 'engaged only after the same hold threshold as always')
   press('A')
   release('A')
-  assert_eq(1, #fired, 'execute_slot still requires the live-engaged display to fire')
+  assert_eq(1, #fired, 'exactly one slot dispatch for the press')
   assert_eq('execute_slot', fired[1].id, 'slot press dispatched normally')
   release('LT')
   assert_eq(nil, gamepad.get_display_mode(), 'idle after release; nothing keeps the display artificially engaged')
@@ -429,15 +429,98 @@ test('execute_slot reports expanded and wxhb modes', function()
   assert_eq(1, fired[1].params.slot, 'DPAD_UP is slot 1')
 end)
 
-test('a face press before the display engages does nothing', function()
+-- ---- Press-time half resolution (issue #25): slot dispatch cannot wait for
+-- display.mode, which lags trigger-down by the hold threshold.
+
+test('#25: a face press right after a fresh trigger press fires that trigger half', function()
+  setup()
+  press('RT')
+  press('A')
+  assert_eq(1, #fired, 'no longer dropped inside the hold-threshold window')
+  assert_eq('execute_slot', fired[1].id, 'slot gesture')
+  assert_eq('xhb_r', fired[1].params.display_mode, 'half resolved from the held trigger')
+  assert_eq(5, fired[1].params.slot, 'A is slot 5')
+end)
+
+test('#25: rolling LT to RT dispatches the new trigger half before expand engages', function()
   setup()
   press('LT')
-  press('A')
-  assert_eq('', fired_seq(), 'no display half to address yet')
-  release('A')
-  release('LT')
   run_timers()
-  assert_eq('', fired_seq(), 'nothing fires later either')
+  assert_eq('xhb_l', gamepad.get_display_mode(), 'left half engaged')
+  press('RT')
+  press('A')
+  assert_eq('xhb_r', fired[1].params.display_mode,
+    'most recent held trigger wins over the stale engaged mode')
+end)
+
+test('#25: rolling RT to LT dispatches the new trigger half before expand engages', function()
+  setup()
+  press('RT')
+  run_timers()
+  assert_eq('xhb_r', gamepad.get_display_mode(), 'right half engaged')
+  press('LT')
+  press('A')
+  assert_eq('xhb_l', fired[1].params.display_mode,
+    'most recent held trigger wins over the stale engaged mode')
+end)
+
+test('#25: releasing the more-recently-pressed trigger falls back to the remaining held trigger', function()
+  setup()
+  press('LT')
+  run_timers()
+  press('RT')
+  release('RT')
+  press('A')
+  assert_eq('xhb_l', fired[1].params.display_mode,
+    'remaining held trigger resolves the half once the newer one releases')
+end)
+
+test('#25: release then re-press of the other trigger dispatches its half immediately', function()
+  setup()
+  press('LT')
+  run_timers()
+  release('LT')
+  press('RT')
+  press('A')
+  assert_eq(1, #fired, 'fires inside the fresh-press window')
+  assert_eq('xhb_r', fired[1].params.display_mode, 'the only held trigger resolves the half')
+end)
+
+test('#25: an engaged expanded mode stays authoritative for slot dispatch', function()
+  setup()
+  press('LT')
+  run_timers()
+  press('RT')
+  run_timers()
+  assert_eq('expand_lt_rt', gamepad.get_display_mode(), 'expanded engaged')
+  press('A')
+  assert_eq('expand_lt_rt', fired[1].params.display_mode,
+    'engaged expand wins even though RT is the more recent trigger')
+end)
+
+test('#25: an engaged wxhb mode stays authoritative for slot dispatch', function()
+  setup()
+  press('LT')
+  release('LT')
+  press('LT')
+  run_timers()
+  assert_eq('wxhb_l', gamepad.get_display_mode(), 'wxhb engaged')
+  press('A')
+  assert_eq('wxhb_l', fired[1].params.display_mode, 'engaged wxhb wins over the plain half')
+end)
+
+test('#25: a face press during the second tap of a WXHB double-tap fires the plain half', function()
+  -- Accepted edge of the press-time resolution: before the second tap's
+  -- min_hold engages WXHB, a face press now fires the plain XHB half instead
+  -- of being dropped -- deliberate; engaged WXHB stays authoritative once
+  -- display.mode is a wxhb mode.
+  setup()
+  press('LT')
+  release('LT')
+  press('LT')
+  press('A')
+  assert_eq(1, #fired, 'not dropped while the double-tap hold is still pending')
+  assert_eq('xhb_l', fired[1].params.display_mode, 'plain half of the held trigger')
 end)
 
 test('duplicate press events do not double-fire a slot', function()
@@ -497,15 +580,26 @@ test('target switching works in wxhb (any trigger held, full stop)', function()
   assert_eq('target_next', fired_seq(), 'trigger held so RB is target_next')
 end)
 
-test('trigger plus LB before the anchor threshold drops silently', function()
+test('#29: LB immediately after trigger-down fires target_previous', function()
   setup()
   press('LT')
   press('LB')
-  assert_eq('', fired_seq(), 'anchor not held long enough')
+  assert_eq('target_previous', fired_seq(), 'no anchor-hold gate; fires on the press')
   release('LB')
   release('LT')
   run_timers()
-  assert_eq('', fired_seq(), 'never falls through to auto_run')
+  assert_eq('target_previous', fired_seq(), 'exactly once, and no auto_run leaks')
+end)
+
+test('#29: RB immediately after trigger-down fires target_next', function()
+  setup()
+  press('RT')
+  press('RB')
+  assert_eq('target_next', fired_seq(), 'no anchor-hold gate; fires on the press')
+  release('RB')
+  release('RT')
+  run_timers()
+  assert_eq('target_next', fired_seq(), 'exactly once, and no cycle_set leaks')
 end)
 
 -- ---- Trigger XHB engagement is orthogonal to held LB/RB
@@ -586,7 +680,7 @@ test('a chorded modifier suppresses its own tap on release', function()
   press('DPAD_UP')
   release('DPAD_UP')
   release('RB')
-  assert_eq('direct_switch_1', fired_seq(),
+  assert_eq('direct_switch_5', fired_seq(),
     'direct switch fires but the quick RB release does not also cycle')
 end)
 
@@ -602,10 +696,12 @@ end)
 
 -- ---- Direct switch
 
-test('direct switch maps all eight positions in the frozen order', function()
+test('direct switch maps all eight positions in the Y/B/A/X then d-pad order', function()
+  -- Issue #30: deliberately NOT the SLOT_INDEX order -- sets 1-4 sit on the
+  -- face buttons, 5-8 on the d-pad.
   setup()
   press('RB')
-  local order = { 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT', 'A', 'B', 'X', 'Y' }
+  local order = { 'Y', 'B', 'A', 'X', 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT' }
   for _, button in ipairs(order) do
     press(button)
     release(button)
@@ -615,6 +711,187 @@ test('direct switch maps all eight positions in the frozen order', function()
   for n, f in ipairs(fired) do
     assert_eq('direct_switch_' .. n, f.id, 'gesture id per position')
     assert_eq(n, f.params.set, 'params carry the set number')
+  end
+end)
+
+test('direct_switch_order exposes the mapping the defaults use and returns a copy', function()
+  setup()
+  local order = gamepad.direct_switch_order()
+  assert_eq(8, #order, 'eight positions')
+  -- The exposed order must be the same mapping default_gestures wires: fire
+  -- each button under RB and check the set number matches its position.
+  press('RB')
+  for n, button in ipairs(order) do
+    fired = {}
+    press(button)
+    release(button)
+    assert_eq(1, #fired, 'one gesture for ' .. button)
+    assert_eq(n, fired[1].params.set, button .. ' switches to its exposed position')
+  end
+  release('RB')
+  order[1] = 'MUTATED'
+  assert_eq('Y', gamepad.direct_switch_order()[1], 'callers get a copy, not the module table')
+end)
+
+test('direct_switch_order reflects a live rebind of one position (issue #27 stale-label bug)', function()
+  local customized = gamepad.default_gestures()
+  for _, entry in ipairs(customized) do
+    if entry.id == 'direct_switch_2' then
+      entry.button = 'DPAD_UP'
+    end
+  end
+  setup(customized)
+  assert_eq('DPAD_UP', gamepad.direct_switch_order()[2],
+    'a rebound direct_switch_2 button is reflected live, not the frozen default')
+end)
+
+test('direct_switch_order falls back to the shipped default when an entry is deleted', function()
+  local defaults = gamepad.default_gestures()
+  local expected_button
+  local filtered = {}
+  for _, entry in ipairs(defaults) do
+    if entry.id == 'direct_switch_5' then
+      expected_button = entry.button
+    else
+      filtered[#filtered + 1] = entry
+    end
+  end
+  setup(filtered)
+  assert_eq(expected_button, gamepad.direct_switch_order()[5],
+    'a deleted gesture entry falls back to the shipped default with no crash or hole')
+end)
+
+-- A hand-edited gestures file (or a future config-UI bug) can wire the same
+-- physical button to two direct_switch_N positions. This is user-caused
+-- config, not an addon bug: no crash, but the collision is silent --
+-- direct_switch_order() reports the button at both positions and the shared
+-- button dispatches every colliding entry on a single press. Locking in the
+-- current, verified-safe behavior as an explicit contract rather than fixing
+-- it (out of scope here).
+test('direct_switch_order and dispatch silently reflect a duplicate-button gesture edit', function()
+  local customized = gamepad.default_gestures()
+  for _, entry in ipairs(customized) do
+    if entry.id == 'direct_switch_2' then
+      entry.button = 'Y'
+    end
+  end
+  setup(customized)
+  local order = gamepad.direct_switch_order()
+  assert_eq('Y', order[1], 'position 1 keeps its default button')
+  assert_eq('Y', order[2], 'position 2 collides onto the same button, no crash')
+
+  press('RB')
+  press('Y')
+  assert_eq(2, #fired, 'both colliding entries fire on the one shared-button press')
+  assert_eq('direct_switch_1', fired[1].id, 'position 1 fires first, in gestures-array order')
+  assert_eq(1, fired[1].params.set, 'position 1 carries set 1')
+  assert_eq('direct_switch_2', fired[2].id, 'position 2 also fires from the same press')
+  assert_eq(2, fired[2].params.set, 'position 2 carries set 2')
+  release('Y')
+  release('RB')
+end)
+
+test('is_held tracks presses, releases, and reset', function()
+  setup()
+  assert_eq(false, gamepad.is_held('RB'), 'not held before any press')
+  press('RB')
+  assert_eq(true, gamepad.is_held('RB'), 'held after the press')
+  assert_eq(false, gamepad.is_held('LT'), 'other buttons unaffected')
+  release('RB')
+  assert_eq(false, gamepad.is_held('RB'), 'released')
+  press('LT')
+  gamepad.reset()
+  assert_eq(false, gamepad.is_held('LT'), 'reset clears held state')
+end)
+
+-- ---- Gestures migration (issue #30 order swap): persisted gesture arrays
+-- replace code defaults wholesale on load, so saved pre-swap entries must be
+-- renumbered unless the user customized them.
+
+local OLD_SWITCH_ORDER = { 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT', 'A', 'B', 'X', 'Y' }
+local NEW_SWITCH_ORDER = { 'Y', 'B', 'A', 'X', 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT' }
+
+local function switch_position(entry)
+  return tonumber(tostring(entry.id or ''):match('^direct_switch_(%d+)$'))
+end
+
+local function old_default_gestures()
+  local gestures = gamepad.default_gestures()
+  for _, entry in ipairs(gestures) do
+    local n = switch_position(entry)
+    if n then
+      entry.button = OLD_SWITCH_ORDER[n]
+    end
+  end
+  return gestures
+end
+
+test('migrate_gestures renumbers a saved old-factory-default array in place', function()
+  local gestures = old_default_gestures()
+  local returned = gamepad.migrate_gestures(gestures)
+  assert_eq(gestures, returned, 'mutates and returns the same array')
+  local checked = 0
+  for _, entry in ipairs(gestures) do
+    local n = switch_position(entry)
+    if n then
+      assert_eq(NEW_SWITCH_ORDER[n], entry.button, 'position ' .. n .. ' renumbered')
+      checked = checked + 1
+    end
+  end
+  assert_eq(8, checked, 'all eight direct-switch entries seen')
+end)
+
+test('migrated old-default gestures dispatch RB+Y as set 1', function()
+  setup(gamepad.migrate_gestures(old_default_gestures()))
+  press('RB')
+  press('Y')
+  assert_eq('direct_switch_1', fired[1].id, 'Y is position 1 after migration')
+  assert_eq(1, fired[1].params.set, 'set param matches')
+end)
+
+test('migrate_gestures preserves user-customized direct-switch entries', function()
+  local gestures = old_default_gestures()
+  for _, entry in ipairs(gestures) do
+    if entry.id == 'direct_switch_2' then
+      entry.button = 'TRACKPAD_1'
+    elseif entry.id == 'direct_switch_3' then
+      entry.action = 'jump'
+    end
+  end
+  gamepad.migrate_gestures(gestures)
+  for _, entry in ipairs(gestures) do
+    if entry.id == 'direct_switch_2' then
+      assert_eq('TRACKPAD_1', entry.button, 'rebound button untouched')
+    elseif entry.id == 'direct_switch_3' then
+      assert_eq(OLD_SWITCH_ORDER[3], entry.button, 'repurposed entry not renumbered')
+      assert_eq('jump', entry.action, 'customized action untouched')
+    elseif switch_position(entry) then
+      assert_eq(NEW_SWITCH_ORDER[switch_position(entry)], entry.button,
+        'untouched defaults still renumbered')
+    end
+  end
+end)
+
+test('migrate_gestures is idempotent', function()
+  local gestures = old_default_gestures()
+  gamepad.migrate_gestures(gestures)
+  local snapshot = {}
+  for i, entry in ipairs(gestures) do
+    snapshot[i] = entry.button
+  end
+  gamepad.migrate_gestures(gestures)
+  for i, entry in ipairs(gestures) do
+    assert_eq(snapshot[i], entry.button, 'second run changes nothing at index ' .. i)
+  end
+end)
+
+test('migrate_gestures leaves an already-current array unchanged', function()
+  local gestures = gamepad.migrate_gestures(gamepad.default_gestures())
+  for _, entry in ipairs(gestures) do
+    local n = switch_position(entry)
+    if n then
+      assert_eq(NEW_SWITCH_ORDER[n], entry.button, 'current order preserved at ' .. n)
+    end
   end
 end)
 
@@ -798,9 +1075,8 @@ test('custom entries cannot override reserved target switching', function()
   }
   setup(gestures)
   press('LT')
-  run_timers()
   press('LB')
-  assert_eq('target_previous', fired_seq(), 'reserved context wins')
+  assert_eq('target_previous', fired_seq(), 'reserved context wins, with no timers run')
 end)
 
 -- ---- Defaults

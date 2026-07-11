@@ -42,20 +42,48 @@ local UNUSABLE_FADE = 0.4
 local SC_TIMER_W = 120
 local SC_TIMER_H = LABEL_H
 
-local ELEMENT_IDS = { 'half_left', 'half_right', 'label', 'sc_timer' }
+local SELECTOR_CLUSTER = 80
+local SELECTOR_GAP     = 12
+local SELECTOR_W       = SELECTOR_CLUSTER * 2 + SELECTOR_GAP
+local SELECTOR_H       = SELECTOR_CLUSTER
+
+local ELEMENT_IDS = { 'half_left', 'half_right', 'label', 'sc_timer', 'set_selector' }
 
 local ELEMENT_DEFAULTS = {
-  half_left  = { x = 180, y = 520 },
-  half_right = { x = 460, y = 520 },
-  label      = { x = 180, y = 494 },
-  sc_timer   = { x = 180, y = 470 },
+  half_left    = { x = 180, y = 520 },
+  half_right   = { x = 460, y = 520 },
+  label        = { x = 180, y = 494 },
+  sc_timer     = { x = 180, y = 470 },
+  set_selector = { x = 500, y = 300 },
 }
 
 local ELEMENT_SIZES = {
-  half_left  = { w = HALF_W, h = HALF_H },
-  half_right = { w = HALF_W, h = HALF_H },
-  label      = { w = LABEL_W, h = LABEL_H },
-  sc_timer   = { w = SC_TIMER_W, h = SC_TIMER_H },
+  half_left    = { w = HALF_W, h = HALF_H },
+  half_right   = { w = HALF_W, h = HALF_H },
+  label        = { w = LABEL_W, h = LABEL_H },
+  sc_timer     = { w = SC_TIMER_W, h = SC_TIMER_H },
+  set_selector = { w = SELECTOR_W, h = SELECTOR_H },
+}
+
+-- Set-selector overlay (issue #27): d-pad cluster left, face cluster right,
+-- matching the physical pad. Label anchors are the diamond points within one
+-- cluster; the set number each button carries comes from the injected
+-- direct_switch_order (gamepad's mapping), never from a copy here.
+local SELECTOR_LABEL_OFFSETS = {
+  DPAD_UP    = { x = 36, y = 0 },
+  DPAD_RIGHT = { x = 62, y = 30 },
+  DPAD_DOWN  = { x = 36, y = 60 },
+  DPAD_LEFT  = { x = 8,  y = 30 },
+  Y          = { x = 36, y = 0 },
+  B          = { x = 62, y = 30 },
+  A          = { x = 36, y = 60 },
+  X          = { x = 8,  y = 30 },
+}
+
+local SELECTOR_FACE_BUTTONS = { A = true, B = true, X = true, Y = true }
+
+local SELECTOR_BUTTONS = {
+  'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT', 'A', 'B', 'X', 'Y',
 }
 
 -- Frozen slot indices (UP=1, RIGHT=2, DOWN=3, LEFT=4 / A=5, B=6, X=7, Y=8);
@@ -118,6 +146,9 @@ local TYPE_ICONS = {
 local DEFAULT_TYPE_ICON = ICONPACK .. 'ui/red-x.png'
 local EMPTY_SLOT_ICON   = ICONPACK .. 'ui/frame.png'
 
+local SELECTOR_DPAD_ICON  = ICONPACK .. 'ui/dpad_xbox.png'
+local SELECTOR_FACES_ICON = ICONPACK .. 'ui/facebuttons_xbox.png'
+
 -- Dedicated radial-sweep art does not ship; the iconpack's 8-step frame
 -- animation (frame_step1..8.png) is the closest existing stepped sequence
 -- and matches SWEEP_STEPS. Flagged for the docs wave as placeholder art.
@@ -145,6 +176,7 @@ local recast_remaining
 local render_all
 local render_label
 local render_sc_timer
+local render_selector
 local render_slot
 local resolved_slot
 local resource_for
@@ -175,6 +207,10 @@ function hud._sc_timer_for_test()
   return state and state.sc_timer
 end
 
+function hud._selector_for_test()
+  return state and state.selector_ui
+end
+
 function hud._slot_pos_for_test(i)
   if state == nil then return nil end
   local x, y = slot_pos(i)
@@ -198,6 +234,11 @@ function hud.destroy()
   state.label:destroy()
   state.tooltip:destroy()
   state.sc_timer:destroy()
+  state.selector_ui.dpad:destroy()
+  state.selector_ui.faces:destroy()
+  for _, label in pairs(state.selector_ui.labels) do
+    label:destroy()
+  end
   state = nil
 end
 
@@ -231,6 +272,7 @@ function hud.init(opts)
       peaks     = {},
       schains   = {},
       sc_phase  = nil,
+      selector  = false,
     }
     state.label = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
     state.tooltip = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
@@ -266,6 +308,26 @@ function hud.init(opts)
       state.slots[i].badge:draggable(false)
       state.slots[i].unusable:draggable(false)
     end
+    state.selector_ui = {
+      dpad = images_lib.new({
+        pos   = { x = 0, y = 0 },
+        size  = { width = SELECTOR_CLUSTER, height = SELECTOR_CLUSTER },
+        flags = { draggable = false },
+      }),
+      faces = images_lib.new({
+        pos   = { x = 0, y = 0 },
+        size  = { width = SELECTOR_CLUSTER, height = SELECTOR_CLUSTER },
+        flags = { draggable = false },
+      }),
+      labels = {},
+    }
+    state.selector_ui.dpad:draggable(false)
+    state.selector_ui.faces:draggable(false)
+    for _, button in ipairs(SELECTOR_BUTTONS) do
+      local label = texts_lib.new('', { pos = { x = 0, y = 0 }, flags = { draggable = false } })
+      label:draggable(false)
+      state.selector_ui.labels[button] = label
+    end
     log.debug('hud elements created')
   end
   state.settings              = opts.settings or {}
@@ -285,6 +347,14 @@ function hud.init(opts)
   end
   state.schains = {}
   state.sc_phase = nil
+  -- Selector held-state is ephemeral (never persisted): re-init always
+  -- clears it, and the labels' set numbers come from the injected
+  -- direct_switch_order (gamepad's mapping), never a copy kept here.
+  state.selector = false
+  state.selector_numbers = {}
+  for n, button in ipairs(opts.direct_switch_order or {}) do
+    state.selector_numbers[button] = n
+  end
   local saved = state.settings.hud_positions or {}
   for _, id in ipairs(ELEMENT_IDS) do
     local p = saved[id] or ELEMENT_DEFAULTS[id]
@@ -359,6 +429,15 @@ function hud.set_draggable(draggable)
   if not state.draggable then
     state.drag = nil
   end
+end
+
+-- RB-held set-selector overlay visibility (issue #27). Main owns the
+-- visibility rule (RB down, neither trigger down) and calls this on every
+-- relevant press and release; the flag is ephemeral and never persisted.
+function hud.set_selector(visible)
+  if state == nil then return end
+  state.selector = visible and true or false
+  render_selector()
 end
 
 function hud.show()
@@ -543,6 +622,7 @@ end
 render_all = function()
   render_label()
   render_sc_timer()
+  render_selector()
   for i = 1, 16 do
     render_slot(i)
   end
@@ -583,6 +663,46 @@ render_sc_timer = function()
     state.sc_timer:show()
   else
     state.sc_timer:hide()
+  end
+end
+
+-- Cluster art plus one set-number label per button; the active set's label is
+-- highlighted. Buttons without an injected set number keep an empty, hidden
+-- label (the direct_switch_order opt degrades like every other optional opt).
+render_selector = function()
+  local ui = state.selector_ui
+  local pos = state.positions.set_selector
+  local face_ox = SELECTOR_CLUSTER + SELECTOR_GAP
+  ui.dpad:pos(pos.x, pos.y)
+  ui.faces:pos(pos.x + face_ox, pos.y)
+  local shown = state.visible and state.selector
+  local active = state.view and state.view.active_set or nil
+  for _, button in ipairs(SELECTOR_BUTTONS) do
+    local label = ui.labels[button]
+    local off = SELECTOR_LABEL_OFFSETS[button]
+    local ox = SELECTOR_FACE_BUTTONS[button] and face_ox or 0
+    label:pos(pos.x + ox + off.x, pos.y + off.y)
+    local number = state.selector_numbers[button]
+    label:text(number and tostring(number) or '')
+    if number ~= nil and number == active then
+      label:color(0, 255, 0)
+    else
+      label:color(255, 255, 255)
+    end
+    if shown and number ~= nil then
+      label:show()
+    else
+      label:hide()
+    end
+  end
+  if shown then
+    ui.dpad:path(state.addon_path .. SELECTOR_DPAD_ICON)
+    ui.faces:path(state.addon_path .. SELECTOR_FACES_ICON)
+    ui.dpad:show()
+    ui.faces:show()
+  else
+    ui.dpad:hide()
+    ui.faces:hide()
   end
 end
 

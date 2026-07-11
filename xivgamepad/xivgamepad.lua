@@ -67,6 +67,13 @@ local EXPAND_DISPLAY_MODES = {
   expand_rt_lt = true,
 }
 
+-- Persisted-gestures schema version (issue #30 migration marker). 0 (or
+-- absent) marks a save from before the marker existed and gets the
+-- direct-switch renumbering pass; anything at or above the current value was
+-- written after the order swap and is trusted as-is, so a deliberate
+-- post-swap customization that recreates the old factory default sticks.
+local GESTURES_VERSION = 2
+
 local binder_mode     = false
 local char_name
 local current_display
@@ -93,6 +100,7 @@ local wizard_teardown = false
 local xivgamepad = {}
 
 local apply_binds
+local apply_gesture_migration
 local binder_opts
 local binder_save_set
 local build_defaults
@@ -133,6 +141,7 @@ local start_poll
 local switch_set
 local toggle_binder
 local toggle_mode
+local update_set_selector
 local wizard_cancel
 local wizard_finish
 local wxhb_position_for_half
@@ -235,6 +244,13 @@ function xivgamepad.init()
 
   log.init(windower.addon_path)
   live_settings = settings_lib.load(windower.addon_path, build_defaults())
+  -- In-memory only (the next natural commit persists it): saved gesture
+  -- arrays replace code defaults on load, so pre-#30 direct-switch entries
+  -- must be renumbered here before anything consumes them. Gated on
+  -- gestures_version so a deliberate post-swap customization that happens to
+  -- recreate the old factory default is never flipped back (see
+  -- apply_gesture_migration).
+  apply_gesture_migration()
   char_name     = windower.ffxi.get_player().name
   rebuild_player_state()
   shared_sets = storage.load_shared(windower.addon_path, char_name)
@@ -313,6 +329,7 @@ function xivgamepad.on_button(button, pressed)
     tester.on_button_event(button, pressed)
   end
   gamepad.on_button_event(button, pressed)
+  update_set_selector()
 end
 
 function xivgamepad.on_load()
@@ -405,10 +422,15 @@ function xivgamepad.setup_close_discard()
   if settings_lib.logged_in() then
     live_settings = settings_lib.load(windower.addon_path, build_defaults())
   end
+  -- The disk file may still predate the #30 order swap (init migrates in
+  -- memory without forcing a write), so a discard reload must re-migrate
+  -- (same gestures_version gate as init).
+  apply_gesture_migration()
   keyboard.configure(live_settings.key_mapping)
   gamepad.set_gestures(live_settings.gestures)
   index_gestures()
   hud.init(hud_opts())
+  update_set_selector()
   xivgamepad.refresh_hud()
 end
 
@@ -431,6 +453,7 @@ function xivgamepad.setup_close_save()
     skillchain.on_login()
   end
   hud.init(hud_opts())
+  update_set_selector()
   xivgamepad.refresh_hud()
 end
 
@@ -478,6 +501,20 @@ end
 apply_binds = function()
   for _, key in ipairs(NOOP_BIND_KEYS) do
     windower.send_command('bind ' .. key .. ' xivgamepad noop')
+  end
+end
+
+-- Version-gated wrapper around gamepad.migrate_gestures (issue #30 follow-up):
+-- a save already at or above GESTURES_VERSION was written after the order
+-- swap, so its direct-switch entries are trusted as-is even if a deliberate
+-- customization happens to recreate the old factory default byte-for-byte.
+-- Only a save below the marker (missing entirely, i.e. pre-marker, or an
+-- explicit older value) gets the renumbering pass. In-memory only: the next
+-- natural settings_lib.commit persists the bumped version.
+apply_gesture_migration = function()
+  if (live_settings.gestures_version or 0) < GESTURES_VERSION then
+    gamepad.migrate_gestures(live_settings.gestures)
+    live_settings.gestures_version = GESTURES_VERSION
   end
 end
 
@@ -556,6 +593,7 @@ build_defaults = function()
     transparency_active = 0,
     transparency_inactive = 100,
     gestures = gamepad.default_gestures(),
+    gestures_version = 0,
     hud_positions = {},
   }
 end
@@ -637,6 +675,7 @@ commit_live = function(keys)
   end
   live_settings = settings_lib.commit(live_settings, windower.addon_path)
   hud.init(hud_opts())
+  update_set_selector()
 end
 
 -- Exactly the surface config_ui.init documents: on_change (staging), staged
@@ -749,6 +788,7 @@ hud_opts = function()
     texts                 = texts,
     images                = images,
     gamedata              = gamedata,
+    direct_switch_order   = gamepad.direct_switch_order(),
     resolve_binding       = action.resolve_binding,
     -- First call per item does the DAT extraction (cached under
     -- data/icons/items thereafter; failure -> nil -> generic type icon).
@@ -785,6 +825,10 @@ on_binder_close = function()
   -- save_set already kept the in-memory content current, so closing only
   -- needs a refresh -- no disk reload (which would double-apply).
   xivgamepad.refresh_hud()
+  -- While the binder was open, on_button's binder_mode branch returned before
+  -- reaching the selector recompute, so any RB/LT/RT edges during the session
+  -- were never reflected -- catch up now.
+  update_set_selector()
 end
 
 on_buff_gain = function(buff_id)
@@ -831,6 +875,7 @@ on_status_change = function(status_id)
       player_state.in_event = true
       keyboard.reset()
       gamepad.reset()
+      update_set_selector()
       hud.hide()
     end
     return
@@ -848,6 +893,7 @@ on_zone_change = function()
   if not initialized then return end
   keyboard.reset()
   gamepad.reset()
+  update_set_selector()
   skillchain.on_zone_change()
   reconcile_player_state()
   xivgamepad.refresh_hud()
@@ -985,6 +1031,12 @@ end
 
 start_learn_mode = function()
   if wizard.is_active() then return end
+  -- on_button returns early while learn_mode is set, so a wizard launched
+  -- while RB (or a trigger) is physically held would otherwise swallow its
+  -- release and strand gamepad's held state -- and the selector overlay, if
+  -- shown -- stale through and after the wizard session.
+  gamepad.reset()
+  update_set_selector()
   learn_mode = true
   -- keyboard.set_raw_callback delivers key-DOWN edges only (contract); the
   -- wizard's optional third `pressed` argument is deliberately not supplied.
@@ -1049,6 +1101,15 @@ toggle_mode = function()
   xivgamepad.refresh_hud()
 end
 
+-- Selector visibility rule (issue #27): RB down and neither trigger down,
+-- recomputed on every relevant press AND release. Held state is read from
+-- gamepad, so gamepad.reset() paths can never strand a visible overlay as
+-- long as they recompute through here.
+update_set_selector = function()
+  hud.set_selector(gamepad.is_held('RB')
+    and not gamepad.is_held('LT') and not gamepad.is_held('RT'))
+end
+
 wizard_cancel = function()
   -- Dismissing the first-run offer accepts the shipped mapping: set the
   -- no-repeat-nag flag but leave the mapping itself untouched.
@@ -1058,6 +1119,7 @@ wizard_cancel = function()
     live_settings.key_mapping_complete = true
     live_settings = settings_lib.commit(live_settings, windower.addon_path)
     hud.init(hud_opts())
+    update_set_selector()
     log.info('Keeping the current key mapping; run //xg learn to reopen the wizard')
   end
   exit_learn_mode()
@@ -1072,6 +1134,7 @@ wizard_finish = function(new_mapping)
     live_settings.key_mapping_complete = true
     live_settings = settings_lib.commit(live_settings, windower.addon_path)
     hud.init(hud_opts())
+    update_set_selector()
   end
   keyboard.configure(new_mapping)
   exit_learn_mode()

@@ -171,11 +171,16 @@ empty set; the shared pool has at least two non-empty cycling sets. Start in job
 | 7.3 | Keep tapping RB | The empty set never appears | ☐ |
 | 7.4 | Hold LB, press RB (no trigger held) | Mode switches to shared — label shows `[shared]` and the active set jumps to that pool's first usable set | ☐ |
 | 7.5 | Tap RB | Cycling now walks only shared sets | ☐ |
-| 7.6 | Hold RB and press D-pad Up | Jumps directly to set position 1, even though it is a job set | ☐ |
+| 7.6 | Hold RB and press Y | Jumps directly to set position 1, even though it is a job set | ☐ |
 | 7.7 | Tap RB after the direct switch | Cycling resumes in the **shared** pool — the direct jump did not change mode | ☐ |
-| 7.8 | Hold RB and press d-pad right, down, left, then A, B, X, Y | Jumps to set positions 2–8 respectively | ☐ |
+| 7.8 | Hold RB and press B, A, X, then D-pad Up, Right, Down, Left | Jumps to set positions 2–8 respectively (faces are sets 1–4, d-pad 5–8) | ☐ |
 | 7.9 | Mount up, then hold LB and press RB | You **dismount**; mode does not switch | ☐ |
 | 7.10 | On foot, hold LB and press RB | Mode switches normally again | ☐ |
+| 7.11 | Hold RB (no trigger) | The set-selector overlay appears: d-pad + face clusters numbered 1–8 (Y=1 … D-pad Left=8) with the active set's number highlighted | ☐ |
+| 7.12 | Still holding RB, press B | The highlight moves to set 2 as the set switches | ☐ |
+| 7.13 | Still holding RB, press and hold LT | The overlay hides immediately; release LT (RB still held) and it reappears | ☐ |
+| 7.14 | Release RB | The overlay disappears immediately | ☐ |
+| 7.15 | Hold LT, then press RB | No overlay (trigger-held RB is target-next); the target cycles instead | ☐ |
 
 RESET: switch back to your preferred mode; release all buttons.
 

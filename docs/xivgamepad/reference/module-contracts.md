@@ -49,6 +49,11 @@ wizard offer on `login` while `key_mapping_complete` is false, and the `host` ta
 `action`. Public: `dispatch`, `dispatch_gesture(id, params)`, `init`, `on_button(name, pressed)`,
 `on_load/on_logout/on_unload`, `on_mouse`, `print_help`, `refresh_hud`, `setup_open`,
 `setup_close_save`, `setup_close_discard`, `cmd_test`, `cmd_learn(sub)`, `cmd_debugmode(arg)`.
+Main also owns the RB-held set-selector overlay rule (issue #27): `on_button` recomputes
+`hud.set_selector(...)` from `gamepad.is_held` (RB down, neither trigger down) on every RB/LT/RT
+press and release, and the zone-change / cutscene reset paths recompute it after `gamepad.reset()`
+so the overlay can never linger; `hud_opts` injects `gamepad.direct_switch_order()` for the
+labels.
 
 Crossbar wiring also lives here — main owns all Windower event registration for the adapters:
 `init()` runs `gamedata.init` + `ensure_fresh` (once per session), `icons.init`,
@@ -73,14 +78,32 @@ button its press resolved to.
 
 ## gamepad
 
-`init({ schedule })`, `set_gestures(array)`, `set_gesture_callback(fn(id, params))`,
+`init({ schedule })`, `set_gestures(array)`, `migrate_gestures(array)` (renumbers saved
+direct-switch entries still matching the pre-swap factory default to the current order; in-place,
+idempotent, user-customized entries untouched — matches purely on value and is unconditional; main
+is the one that gates whether it runs at all, via the `gestures_version` marker described in
+`settings-schema.md`, so a deliberate post-swap customization that recreates the old factory
+default byte-for-byte is never re-migrated once the save is at the current version),
+`set_gesture_callback(fn(id, params))`,
 `set_display_callback(fn(mode_or_nil))`, `on_button_event(name, pressed)`, `get_display_mode()`,
-`reset()`, `default_gestures()` (the shipped array, used for settings defaults). Display enum:
+`is_held(name)` (true while the named button is down — main's set-selector visibility reads held
+state through this, so `reset()` can never strand it), `direct_switch_order()` (a fresh copy of
+the LIVE button array for sets 1–8, derived from the gestures array passed to the most recent
+`set_gestures` call — reflects a player's rebind of a `direct_switch_N` gesture's button via the
+config UI's Gestures tab, falling back to the shipped default for any position whose `rb_held`
+`switch_set_N` entry was removed rather than rebound; the single source of the set-number mapping;
+main injects it into the HUD so the selector overlay never keeps its own copy), `reset()`,
+`default_gestures()` (the shipped array, used for settings defaults). Display enum:
 `'xhb_l' | 'xhb_r' | 'wxhb_l' | 'wxhb_r' | 'expand_lt_rt' | 'expand_rt_lt'` (idle `nil`).
-Positional order (frozen addon-wide): `DPAD_UP=1, DPAD_RIGHT=2, DPAD_DOWN=3, DPAD_LEFT=4, A=5,
-B=6, X=7, Y=8`; direct-switch uses the same order for set positions. Reserved dispatch is
-hard-wired: slot buttons under `trigger_held` fire `execute_slot
-{ display_mode, slot }`; LB/RB under `trigger_held` fire `target_previous`/`target_next`;
+Slot positional order (frozen addon-wide): `DPAD_UP=1, DPAD_RIGHT=2, DPAD_DOWN=3, DPAD_LEFT=4,
+A=5, B=6, X=7, Y=8`. Direct-switch deliberately does **not** share that order: `Y=1, B=2, A=3,
+X=4, DPAD_UP=5, DPAD_RIGHT=6, DPAD_DOWN=7, DPAD_LEFT=8` — sets 1–4 on the face buttons, 5–8 on
+the d-pad. Reserved dispatch is hard-wired: slot buttons under `trigger_held` fire `execute_slot
+{ display_mode, slot }`, where an engaged WXHB/Expanded mode is authoritative for `display_mode`
+and otherwise the half is resolved at press time from the most-recently-pressed currently-held
+trigger (never from the lagging engaged display, which would misfire the stale half or drop
+presses inside the hold-threshold window); LB/RB under `trigger_held` fire
+`target_previous`/`target_next` immediately on the bumper press (no minimum trigger-hold time);
 `open_binder` only dispatches while XHB-L/R is active; WXHB/Expanded require their anchor trigger
 (LT for `*_l`/`lt_rt`, RT for `*_r`/`rt_lt`). Releasing one control of a stacked view falls back
 to the surviving trigger's XHB.
@@ -111,23 +134,34 @@ starts false every load and is never persisted. Lines carry `os.date` timestamps
 ## hud
 
 `init(opts)` (idempotent; opts: `settings`, `addon_path`, `texts`, `images`, `resolve_binding`,
-`get_player_state`, `on_element_move(element_id, x, y)`, and the optional crossbar-port members
+`get_player_state`, `on_element_move(element_id, x, y)`, the optional
+`direct_switch_order` (button array from `gamepad.direct_switch_order()` — numbers the
+set-selector labels; absent, the selector shows unnumbered cluster art), and the optional
+crossbar-port members
 `gamedata`, `get_item_icon(item_id_or_name)`, `get_skillchain_prop(binding)`,
 `get_skillchain_window()` — every optional opt degrades: without `gamedata` the
 res-scan/type-icon paths apply, without `get_item_icon` item slots keep the generic type icon,
 without the skillchain getters the highlight layer and `sc_timer` stay hidden), `show()`,
 `hide()`,
-`set_display(mode_or_nil)`, `refresh(view)`, `tick()` (prerender; recast sweeps, per-slot
+`set_display(mode_or_nil)`, `set_selector(visible)` (RB-held set-selector overlay — issue #27;
+main owns the visibility rule: RB down and neither trigger down, recomputed on every RB/LT/RT
+press AND release and after gamepad resets; the flag is ephemeral, cleared by every re-init,
+never persisted), `refresh(view)`, `tick()` (prerender; recast sweeps, per-slot
 skillchain highlights, and the `sc_timer` text), `set_draggable
 (bool)`, `on_mouse(mtype, x, y, delta)` (drag + tooltips; returns true only while consuming a
 drag), `destroy()`. View model: `{ active_set, set_name, mode, display_mode, slots = { [1..16] =
 resolved binding or nil } }`; slots still carrying `overlays` are re-resolved through the injected
-resolver. Elements: `half_left`, `half_right`, `label`, `sc_timer`; positions persist under
+resolver. Elements: `half_left`, `half_right`, `label`, `sc_timer`, `set_selector`; positions
+persist under
 `hud_positions[element_id]` (staged by main). The `sc_timer` shows `Wait n.n` (red) while
 resonance is set but the chain delay has not elapsed and `Go! n.n` (green) while the window is
 open, hiding otherwise; each slot carries a skillchain highlight layer whose icon is
 `images/icons/iconpacks/default/skillchain/<prop lowercase>.png` (fallbacks: radiance →
-`light.png`, umbra → `darkness.png`), resolved per tick through `get_skillchain_prop`.
+`light.png`, umbra → `darkness.png`), resolved per tick through `get_skillchain_prop`. The
+`set_selector` element renders the d-pad and face-button cluster art
+(`iconpacks/default/ui/dpad_xbox.png` / `facebuttons_xbox.png`) with one set-number label per
+button from the injected `direct_switch_order` and the active set's label (from
+`view.active_set`) highlighted green.
 
 ## config_ui
 

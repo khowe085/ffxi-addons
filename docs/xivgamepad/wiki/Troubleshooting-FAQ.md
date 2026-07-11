@@ -30,6 +30,10 @@ would otherwise fire macros on those presses. The addon neutralizes the `Ctrl`+n
    chat line is open (slot execution pauses), a cutscene is running (everything pauses), or the
    Binder / Tester is open.
 3. Remember the d-pad only reaches the addon while LT, RT, or RB is held.
+4. If specifically the **bare** face buttons, START, and BACK are dead while everything works with
+   a trigger held, the Steam profile is emitting their keys only inside trigger action layers —
+   see [Steam Input Profile: Troubleshooting](Steam-Input-Profile.md#troubleshooting-bare-face-buttons--start--back-do-nothing).
+   Also note bare A/B are Enter/Escape by design (A opens the chat line, B closes it).
 
 ## The wizard captured the wrong key
 

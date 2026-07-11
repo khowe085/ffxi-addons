@@ -99,7 +99,8 @@ abbreviation) and is written by the Binder. Key settings:
 | `transparency_active`     | number  | Transparency of the displayed half while a view is active.               |
 | `transparency_inactive`   | number  | Transparency of the other half while a view is active (default 100).    |
 | `gestures`                | table   | The data-driven gesture list (edited in the Gestures tab).               |
-| `hud_positions`           | table   | Dragged positions of the HUD elements (including the skillchain timer).  |
+| `gestures_version`        | number  | Internal migration marker for the direct-switch order fix; not user-editable. |
+| `hud_positions`           | table   | Dragged positions of the HUD elements (including the skillchain timer and the RB-held set-selector overlay). |
 | `skillchain_display`      | boolean | Show the skillchain window timer and per-slot chain highlights (default true). |
 | `config_x` / `config_y`   | number  | Position of the configuration window.                                    |
 

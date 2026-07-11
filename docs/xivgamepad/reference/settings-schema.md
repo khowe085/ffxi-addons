@@ -22,7 +22,8 @@ Windower `files` API. Player-facing docs: [../wiki/Home.md](../wiki/Home.md).
 | `transparency_active` | `0` | Displayed half while a view is active. |
 | `transparency_inactive` | `100` | Other half while a view is active. |
 | `gestures` | `gamepad.default_gestures()` | Data-driven gesture array, schema below. |
-| `hud_positions` | `{}` | `hud_positions[element_id] = { x, y }`; element ids `half_left`, `half_right`, `label`, `sc_timer`. Unset elements use the HUD's built-in defaults (`180,520` / `460,520` / `180,494` / `180,470`). |
+| `gestures_version` | `0` | Migration marker (issue #30 follow-up). A save is renumbered by `gamepad.migrate_gestures` (direct-switch entries still matching the pre-swap factory default) only while this is below the current value `2`; main bumps it to `2` in memory once migrated (persisted on the next natural save). A save already at `2` is trusted as-is, so a deliberate post-swap customization that recreates the old factory default byte-for-byte is never re-migrated. `0` covers both a pre-marker save (key absent — `lib/settings.load` only fills in missing keys) and a brand-new install (already in the current order, so migrating is a harmless no-op). |
+| `hud_positions` | `{}` | `hud_positions[element_id] = { x, y }`; element ids `half_left`, `half_right`, `label`, `sc_timer`, `set_selector` (the RB-held set-selector overlay). Unset elements use the HUD's built-in defaults (`180,520` / `460,520` / `180,494` / `180,470` / `500,300`). |
 | `skillchain_display` | `true` | Skillchain HUD display: the `sc_timer` element and per-slot chain highlights. Toggled from the Display tab; the injected getter gates the skillchain adapter, and a false → true save re-seeds the ported lib. |
 
 ### `sets` default
@@ -97,8 +98,9 @@ bare_start, bare_back`.
 
 Reserved `(button × context)` pairs are hard-wired in the gamepad module and cannot be rebound by
 gesture entries: face/d-pad under `trigger_held` is always `execute_slot`, and LB/RB under
-`trigger_held` are always `target_previous` / `target_next` (their entries only contribute timing
-thresholds). The XHB `hold` entries on LT/RT likewise only tune `min_hold`.
+`trigger_held` are always `target_previous` / `target_next`, firing immediately on the bumper
+press (their entries' timing params are not consumed). The XHB `hold` entries on LT/RT only tune
+`min_hold`.
 
 ## Hotbar content files (`storage.lua`)
 

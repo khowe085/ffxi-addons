@@ -20,7 +20,7 @@ bumper is held. All of these ship enabled; timing and bindings are editable on t
 | Hold LT or RT + press LB | Select the **previous target** |
 | Hold LT or RT + press RB | Select the **next target** |
 | Hold LB + press RB (bare) | **Switch mode** (shared/job) — **dismounts** instead when mounted |
-| Hold RB + d-pad or face (bare) | **Jump directly** to set position 1–8 |
+| Hold RB + d-pad or face (bare) | **Jump directly** to set position 1–8 — holding RB shows a selector overlay with the numbering and the active set highlighted (see [Hotbar Sets](Hotbar-Sets-and-Display-Modes.md)) |
 | BACK while a trigger is held (XHB shown) | Open / close the **Binder** |
 | Hold LB + right stick up/down (bare) | Camera **zoom** (handled by Steam, not the addon) |
 | Bare A | **Confirm** (acts like the Enter key) |

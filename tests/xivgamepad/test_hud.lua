@@ -834,6 +834,176 @@ test('sc_timer drags via the element machinery and persists under hud_positions.
   assert_eq(240, hud._position_for_test('sc_timer').x, 'staged position re-read on re-init')
 end)
 
+-- ---- Set-selector overlay (issue #27) ----
+
+-- A literal snapshot of gamepad's shipped default order (issue #30), not
+-- derived via require('gamepad').direct_switch_order() at file-load time:
+-- the test harness dofiles every test file into one process, so 'gamepad' is
+-- a cached singleton whose live state depends on whichever test file last
+-- ran before this one. Deriving it here would only work by accident.
+local SELECTOR_ORDER = { 'Y', 'B', 'A', 'X', 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT' }
+
+test('set_selector before init is a safe no-op', function()
+  hud.destroy()
+  hud.set_selector(true)
+end)
+
+test('set_selector shows cluster art and set numbers from the injected order', function()
+  fresh(nil, { direct_switch_order = SELECTOR_ORDER })
+  hud.show()
+  hud.refresh(make_view())
+  local sel = hud._selector_for_test()
+  assert_eq(false, sel.dpad:visible(), 'hidden until set_selector(true)')
+  hud.set_selector(true)
+  assert_eq(true, sel.dpad:visible(), 'd-pad cluster shown')
+  assert_eq(true, sel.faces:visible(), 'face cluster shown')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/dpad_xbox.png',
+    sel.dpad:path(), 'd-pad cluster art')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/facebuttons_xbox.png',
+    sel.faces:path(), 'face cluster art')
+  for n, button in ipairs(SELECTOR_ORDER) do
+    assert_eq(tostring(n), sel.labels[button]:text(), 'label number for ' .. button)
+    assert_eq(true, sel.labels[button]:visible(), 'label visible for ' .. button)
+  end
+  assert_eq('1', sel.labels.Y:text(), 'Y carries set 1 (the post-#30 order)')
+end)
+
+test('set_selector(true) before the first refresh degrades safely with no active-set highlight', function()
+  fresh(nil, { direct_switch_order = SELECTOR_ORDER })
+  hud.show()
+  local sel = hud._selector_for_test()
+  local ok, err = pcall(function() hud.set_selector(true) end)
+  assert_eq(true, ok, 'no crash before any refresh has run: ' .. tostring(err))
+  assert_eq(true, sel.dpad:visible(),  'cluster art still shows')
+  assert_eq(true, sel.faces:visible(), 'cluster art still shows')
+  for n, button in ipairs(SELECTOR_ORDER) do
+    assert_eq(tostring(n), sel.labels[button]:text(), 'label number still comes from the injected order')
+    assert_eq(true, sel.labels[button]:visible(), 'label visible even with no view yet')
+    assert_eq(255, sel.labels[button]._color[1], 'no active set to highlight before a view exists')
+  end
+end)
+
+test('the active set label is highlighted and follows refresh', function()
+  fresh(nil, { direct_switch_order = SELECTOR_ORDER })
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_selector(true)
+  local sel = hud._selector_for_test()
+  assert_eq(0, sel.labels.Y._color[1], 'active set 1 label (Y) highlighted')
+  assert_eq(255, sel.labels.Y._color[2], 'highlight is green')
+  assert_eq(255, sel.labels.DPAD_UP._color[1], 'inactive label plain (white)')
+  local view = make_view()
+  view.active_set = 5
+  hud.refresh(view)
+  assert_eq(0, sel.labels.DPAD_UP._color[1], 'highlight moved to set 5 (d-pad Up)')
+  assert_eq(255, sel.labels.Y._color[1], 'old active label back to plain')
+end)
+
+test('set_selector(false) hides the overlay; hud hide/show respect the flag', function()
+  fresh(nil, { direct_switch_order = SELECTOR_ORDER })
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_selector(true)
+  local sel = hud._selector_for_test()
+  hud.set_selector(false)
+  assert_eq(false, sel.dpad:visible(), 'art hidden on set_selector(false)')
+  assert_eq(false, sel.labels.Y:visible(), 'labels hidden on set_selector(false)')
+  hud.set_selector(true)
+  hud.hide()
+  assert_eq(false, sel.dpad:visible(), 'hud.hide conceals the overlay')
+  assert_eq(false, sel.labels.A:visible(), 'hud.hide conceals the labels')
+  hud.show()
+  assert_eq(true, sel.dpad:visible(), 'hud.show restores it while the flag is set')
+end)
+
+test('re-init clears the ephemeral selector flag', function()
+  fresh(nil, { direct_switch_order = SELECTOR_ORDER })
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_selector(true)
+  hud.init({
+    settings            = settings,
+    addon_path          = ADDON_PATH,
+    texts               = texts,
+    images              = images,
+    resolve_binding     = function(slot) return slot end,
+    get_player_state    = function() return player_state end,
+    on_element_move     = function() end,
+    direct_switch_order = SELECTOR_ORDER,
+  })
+  hud.show()
+  assert_eq(false, hud._selector_for_test().dpad:visible(),
+    'held-state never survives a re-init (ephemeral, never persisted)')
+end)
+
+test('set_selector drags via the element machinery and persists under hud_positions.set_selector', function()
+  fresh(nil, { direct_switch_order = SELECTOR_ORDER })
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_draggable(true)
+  assert_eq(500, hud._position_for_test('set_selector').x, 'default set_selector x')
+  assert_eq(300, hud._position_for_test('set_selector').y, 'default set_selector y')
+  assert_eq(true, hud.on_mouse(1, 510, 310), 'down over set_selector starts a drag')
+  assert_eq(true, hud.on_mouse(0, 560, 350), 'drag move consumed')
+  assert_eq(550, hud._position_for_test('set_selector').x, 'element x follows the drag')
+  assert_eq(340, hud._position_for_test('set_selector').y, 'element y follows the drag')
+  assert_eq(550, hud._selector_for_test().dpad._x, 'cluster art repositions with the drag')
+  assert_eq(true, hud.on_mouse(2, 560, 350), 'release consumed')
+  assert_eq(1, #moves, 'one move reported')
+  assert_eq('set_selector', moves[1].id, 'set_selector id reported')
+  assert_eq(550, moves[1].x, 'final x reported')
+  assert_eq(340, moves[1].y, 'final y reported')
+  settings.hud_positions.set_selector = { x = 550, y = 340 }
+  hud.init({
+    settings            = settings,
+    addon_path          = ADDON_PATH,
+    texts               = texts,
+    images              = images,
+    resolve_binding     = function(slot) return slot end,
+    get_player_state    = function() return player_state end,
+    on_element_move     = function() end,
+    direct_switch_order = SELECTOR_ORDER,
+  })
+  assert_eq(550, hud._position_for_test('set_selector').x, 'staged position re-read on re-init')
+end)
+
+test('without direct_switch_order the selector shows art but no numbers', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_selector(true)
+  local sel = hud._selector_for_test()
+  assert_eq(true, sel.dpad:visible(), 'cluster art still shows')
+  assert_eq('', sel.labels.Y:text(), 'no number without the injected order')
+  assert_eq(false, sel.labels.Y:visible(), 'unnumbered label stays hidden')
+end)
+
+-- A user-customized rebind (config UI Gestures tab) must reach the rendered
+-- overlay through the same wiring xivgamepad.lua uses in production
+-- (hud_opts injects gamepad.direct_switch_order() into hud.init): this is
+-- not just gamepad.direct_switch_order() correct in isolation, but its
+-- output actually driving what the player sees.
+test('a live-customized direct-switch rebind reaches the rendered selector labels', function()
+  local gamepad = require('gamepad')
+  local customized = gamepad.default_gestures()
+  for _, entry in ipairs(customized) do
+    if entry.id == 'direct_switch_1' then
+      entry.button = 'B'
+    elseif entry.id == 'direct_switch_2' then
+      entry.button = 'Y'
+    end
+  end
+  gamepad.set_gestures(customized)
+  fresh(nil, { direct_switch_order = gamepad.direct_switch_order() })
+  hud.show()
+  hud.refresh(make_view())
+  hud.set_selector(true)
+  local sel = hud._selector_for_test()
+  assert_eq('1', sel.labels.B:text(), 'rebound button B now renders set 1')
+  assert_eq('2', sel.labels.Y:text(), 'rebound button Y now renders set 2')
+  gamepad.set_gestures(gamepad.default_gestures())
+end)
+
 -- ---- Backward compatibility ----
 
 test('tick without skillchain opts leaves highlight and timer hidden', function()

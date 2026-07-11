@@ -163,7 +163,11 @@ local settings_file = addon_path .. 'data/TestChar/settings.json'
 -- DIK codes from the frozen default key mapping.
 local KEY_LT    = 2
 local KEY_RT    = 3
+local KEY_RB    = 5
 local KEY_A     = 6
+local KEY_B     = 7
+local KEY_X     = 8
+local KEY_Y     = 9
 local KEY_DPADR = 11
 local KEY_CTRL  = 29
 
@@ -336,6 +340,83 @@ test('bare A with no trigger synthesizes the setkey enter pair', function()
   assert_eq('setkey enter down', windower._commands[1], 'enter pressed')
   assert_eq('setkey enter up',   windower._commands[2], 'enter released')
   windower._run_scheduled()
+end)
+
+-- ---- (c2) bare face/START/BACK boundary coverage (issue #26)
+--
+-- The full raw-scancode chain (keyboard event -> button callback -> gamepad
+-- bare dispatch -> native side effect) for every default bare binding. No
+-- in-repo defect was found for #26; these lock the whole chain so a "bare
+-- buttons do nothing" report provably points at the Steam Input profile
+-- (see docs/xivgamepad/wiki/Steam-Input-Profile.md, Troubleshooting).
+
+test('bare B, X, and Y each fire exactly their mapped native effect', function()
+  fresh()
+  key(KEY_B, true)
+  key(KEY_B, false)
+  assert_eq(2, #windower._commands,                     'exactly the escape pair from bare B')
+  assert_eq('setkey escape down', windower._commands[1], 'escape pressed')
+  assert_eq('setkey escape up',   windower._commands[2], 'escape released')
+  windower._commands = {}
+  key(KEY_X, true)
+  key(KEY_X, false)
+  assert_eq(1, #windower._commands,           'exactly one command from bare X')
+  assert_eq('input /map', windower._commands[1], 'X opens the map')
+  windower._commands = {}
+  key(KEY_Y, true)
+  key(KEY_Y, false)
+  assert_eq(1, #windower._commands,            'exactly one command from bare Y')
+  assert_eq('input /jump', windower._commands[1], 'Y jumps')
+  windower._run_scheduled()
+end)
+
+test('bare START and BACK synthesize the menu-open and focus keys', function()
+  fresh()
+  key(KEY_CTRL, true)
+  key(KEY_RT, true)  -- Ctrl+'2' resolves to START
+  assert_eq(2, #windower._commands,                      'exactly the numpad- pair from START')
+  assert_eq('setkey numpad- down', windower._commands[1], 'menu-open key pressed')
+  assert_eq('setkey numpad- up',   windower._commands[2], 'menu-open key released')
+  key(KEY_RT, false)
+  key(KEY_CTRL, false)
+  windower._commands = {}
+  key(KEY_CTRL, true)
+  key(KEY_LT, true)  -- Ctrl+'1' resolves to BACK
+  assert_eq(2, #windower._commands,                      'exactly the numpad+ pair from BACK')
+  assert_eq('setkey numpad+ down', windower._commands[1], 'focus key pressed')
+  assert_eq('setkey numpad+ up',   windower._commands[2], 'focus key released')
+  key(KEY_LT, false)
+  key(KEY_CTRL, false)
+  windower._run_scheduled()
+end)
+
+test('a full press-release cycle leaves bare A re-fireable', function()
+  fresh()
+  key(KEY_A, true)
+  key(KEY_A, false)
+  key(KEY_A, true)
+  key(KEY_A, false)
+  assert_eq(4, #windower._commands,                  'two full enter pairs')
+  assert_eq('setkey enter down', windower._commands[3], 'second press fired again')
+  windower._run_scheduled()
+end)
+
+test('releasing Ctrl before the base key still releases the pressed button cleanly', function()
+  fresh()
+  local gamepad = require('gamepad')
+  key(KEY_CTRL, true)
+  key(KEY_LT, true)  -- BACK press (press identity remembered for the release)
+  assert(contains(commands_text(), 'setkey numpad+ down'), 'BACK fired on the press')
+  key(KEY_CTRL, false)  -- Ctrl released FIRST
+  key(KEY_LT, false)    -- must release BACK, not LT
+  windower._run_scheduled()
+  windower._commands = {}
+  key(KEY_LT, true)     -- no stuck state: the same scancode now works bare
+  windower._run_scheduled()
+  assert_eq('xhb_l', gamepad.get_display_mode(), 'bare LT engages XHB-L after the ctrl-first release')
+  key(KEY_LT, false)
+  windower._run_scheduled()
+  assert_eq(nil, gamepad.get_display_mode(), 'display released cleanly')
 end)
 
 -- ---- (d) config window: real config_gui, row click stages, save persists
@@ -688,6 +769,114 @@ test('always_show_wxhb: settings toggle drives build_view and hud transparency e
   key(KEY_LT, false)
   windower._run_scheduled()
   assert_eq(nil, gamepad.get_display_mode(), 'display released with the trigger')
+end)
+
+-- ---- (l3) RB-held set-selector overlay (issue #27), end to end
+
+test('RB held shows the set selector labeled from gamepad order; triggers and release hide it', function()
+  local a = fresh()
+  local gamepad = require('gamepad')
+  local hud     = require('hud')
+  local sel = hud._selector_for_test()
+
+  key(KEY_RB, true)
+  assert_eq(true, sel.dpad:visible(),  'selector shown on bare RB down')
+  assert_eq(true, sel.faces:visible(), 'both clusters shown')
+  for n, button in ipairs(gamepad.direct_switch_order()) do
+    assert_eq(tostring(n), sel.labels[button]:text(),
+      'label for ' .. button .. ' comes from gamepad direct-switch order')
+  end
+  assert_eq(0, sel.labels.Y._color[1], 'active set 1 (Y) highlighted')
+
+  key(KEY_B, true)  -- direct_switch_2 while RB held
+  assert_eq(2, a._get_live().active_set, 'face B jumped to set 2')
+  assert_eq(0,   sel.labels.B._color[1], 'highlight moved to set 2 (B)')
+  assert_eq(255, sel.labels.Y._color[1], 'set 1 label back to plain')
+  assert_eq(true, sel.dpad:visible(),
+    'direct-switch reconfigure (commit_live -> hud.init) must not strand the overlay hidden while RB is still held')
+  key(KEY_B, false)
+
+  key(KEY_LT, true)
+  assert_eq(false, sel.dpad:visible(), 'a trigger going down mid-hold hides the selector')
+  key(KEY_LT, false)
+  assert_eq(true, sel.dpad:visible(), 'trigger release restores it while RB is still held')
+
+  key(KEY_RB, false)
+  assert_eq(false, sel.dpad:visible(),     'hidden the moment RB is released')
+  assert_eq(false, sel.labels.B:visible(), 'labels hidden with the art')
+
+  key(KEY_RT, true)
+  key(KEY_RB, true)
+  assert_eq(false, sel.dpad:visible(), 'RB pressed while a trigger is held never shows it')
+  key(KEY_RB, false)
+  key(KEY_RT, false)
+  windower._run_scheduled()
+end)
+
+test('RB held across a config save or discard keeps the selector visible', function()
+  local a = fresh()
+  local hud = require('hud')
+  local sel = hud._selector_for_test()
+
+  key(KEY_RB, true)
+  assert_eq(true, sel.dpad:visible(), 'selector shown before opening config')
+  windower._events['addon command']('config')
+  windower._events['addon command']('save')
+  assert_eq(true, sel.dpad:visible(),
+    'setup_close_save -> hud.init must not strand the overlay hidden while RB is still held')
+  key(KEY_RB, false)
+  assert_eq(false, sel.dpad:visible(), 'hides normally once RB is released')
+
+  key(KEY_RB, true)
+  assert_eq(true, sel.dpad:visible(), 'selector shown again before opening config')
+  windower._events['addon command']('config')
+  windower._events['addon command']('discard')
+  assert_eq(true, sel.dpad:visible(),
+    'setup_close_discard -> hud.init must not strand the overlay hidden while RB is still held')
+  key(KEY_RB, false)
+  assert_eq(false, sel.dpad:visible(), 'hides normally once RB is released')
+  windower._run_scheduled()
+end)
+
+test('RB held across logout and a character switch never strands the selector visible', function()
+  local a = fresh()
+  local gamepad = require('gamepad')
+  local hud     = require('hud')
+  local sel = hud._selector_for_test()
+
+  key(KEY_RB, true)
+  assert_eq(true, sel.dpad:visible(), 'selector shown before logout, RB physically down')
+
+  -- RB is never released here: the controller is still physically holding it
+  -- through the logout, exactly like alt-F4'ing or switching characters
+  -- without letting go of the pad.
+  windower._events['logout']()
+  assert_eq(false, sel.dpad:visible(), 'hud.hide() on logout hides the overlay immediately')
+
+  -- Character switch: a different character logs in without an intervening
+  -- unload/load cycle (the addon module instance persists).
+  windower.ffxi._player = {
+    id = 888, name = 'OtherChar', main_job = 'WAR', sub_job = 'NIN', buffs = {}, status = 0,
+  }
+  windower._fs[addon_path .. 'data/OtherChar/settings.json'] = '{"key_mapping_complete":true}'
+  windower._events['login']()
+  windower._scheduled = {}
+  windower._commands  = {}
+
+  assert_eq('OtherChar', a._get_char_name(), 'sanity: the new character actually logged in')
+  assert_eq(false, sel.dpad:visible(),
+    'overlay stays hidden post-switch even though RB was never released (issue #27 lifecycle)')
+  assert_eq(false, sel.labels.Y:visible(), 'labels stay hidden post-switch too')
+
+  key(KEY_RB, true)
+  assert_eq(true, sel.dpad:visible(), 'a fresh RB press after the switch shows the overlay again')
+  for n, button in ipairs(gamepad.direct_switch_order()) do
+    assert_eq(tostring(n), sel.labels[button]:text(),
+      'labels rebuilt correctly for the post-switch session')
+  end
+  key(KEY_RB, false)
+  assert_eq(false, sel.dpad:visible(), 'releases normally after the switch')
+  windower._run_scheduled()
 end)
 
 -- ---- (m) unload with the crossbar features live

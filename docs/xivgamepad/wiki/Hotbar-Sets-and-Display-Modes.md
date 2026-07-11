@@ -64,8 +64,13 @@ every case the same eight physical buttons address the eight slots you are looki
 - **Tap RB (bare)** advances the XHB to the next set in the current mode's pool. Sets that are
   empty, or marked **skip cycle**, are passed over — park situational bars (like a crafting set)
   on skip and they stay out of the rotation.
-- **Hold RB + a d-pad direction or face button** jumps straight to set position 1–8 (same button
-  order as slot addressing: d-pad Up = set 1 … Y = set 8). A direct jump works across pools and
-  does **not** change your mode — cycling afterwards resumes in the pool you were in.
+- **Hold RB + a face button or d-pad direction** jumps straight to set position 1–8 (Y = set 1,
+  B = 2, A = 3, X = 4, d-pad Up = 5, Right = 6, Down = 7, Left = 8 — deliberately not the
+  slot-addressing order). A direct jump works across pools and does **not** change your mode —
+  cycling afterwards resumes in the pool you were in.
+- While RB is held (with no trigger down) a **set-selector overlay** appears on the HUD: the
+  d-pad and face-button clusters labeled with their set numbers 1–8, with the currently active
+  set highlighted. It disappears the moment you release RB or a trigger goes down. Like every HUD
+  element it is draggable while the configuration window is open, and its position is saved.
 
 Next: put actions in the slots with [the Binder](Using-the-Binder.md).

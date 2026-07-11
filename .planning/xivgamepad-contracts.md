@@ -90,7 +90,18 @@ gamepad.set_gesture_callback(fn)      -- fn(gesture_id, params); params always a
 gamepad.set_display_callback(fn)      -- fn(display_mode_or_nil) on every display transition
 gamepad.on_button_event(name, pressed)
 gamepad.get_display_mode()            -- current enum value or nil (idle)
+gamepad.is_held(name)                 -- true while the named button is down (selector wiring)
+gamepad.direct_switch_order()         -- fresh copy of the LIVE sets 1-8 button array, derived from
+                                      -- the gestures array passed to the most recent set_gestures
+                                      -- call (falls back to the shipped default for any position
+                                      -- whose rb_held switch_set_N entry was removed rather than
+                                      -- rebound); single source -- main injects it into hud so no
+                                      -- second copy exists
 gamepad.reset()                       -- drop all held/timing state
+gamepad.migrate_gestures(array)       -- renumbers saved direct-switch entries still matching the
+                                      -- pre-#30 factory default to the current order; in-place,
+                                      -- idempotent, value-based and unconditional -- main gates
+                                      -- whether it runs at all via gestures_version (below)
 ```
 
 **Display-mode enum:** `'xhb_l' | 'xhb_r' | 'wxhb_l' | 'wxhb_r' | 'expand_lt_rt' | 'expand_rt_lt'`
@@ -100,13 +111,24 @@ Gesture entries whose `action` is one of the six `activate_*` names drive the in
 state machine (reported via the display callback); all other entries fire the gesture callback.
 
 **Gesture callback params:**
-- `execute_slot` → `{ display_mode = <enum>, slot = 1..8 }` (slot relative to the displayed half)
+- `execute_slot` → `{ display_mode = <enum>, slot = 1..8 }` (slot relative to the dispatched half;
+  an engaged WXHB/Expanded mode is authoritative, otherwise the half is resolved at press time
+  from the most-recently-pressed currently-held trigger — never from the lagging `display.mode`,
+  which would misfire the stale half or drop presses inside the hold-threshold window — issue #25)
 - `direct_switch_N` → `{ set = N }`
 - everything else → `{}`
 
 **Slot/button positional order (frozen addon-wide):** within the displayed half,
-`DPAD_UP=1, DPAD_RIGHT=2, DPAD_DOWN=3, DPAD_LEFT=4, A=5, B=6, X=7, Y=8`. Direct-switch uses the
-same order for set positions 1–8. (Visual arrangement is the HUD's concern; indices are fixed.)
+`DPAD_UP=1, DPAD_RIGHT=2, DPAD_DOWN=3, DPAD_LEFT=4, A=5, B=6, X=7, Y=8`. Direct-switch
+deliberately does **not** share this order (issue #30): `Y=1, B=2, A=3, X=4, DPAD_UP=5,
+DPAD_RIGHT=6, DPAD_DOWN=7, DPAD_LEFT=8` — sets 1–4 on the face buttons, 5–8 on the d-pad.
+(Visual arrangement is the HUD's concern; indices are fixed.)
+
+A settings key `gestures_version` (default `0`; current value `2`) gates the migration: main only
+calls `gamepad.migrate_gestures` when the loaded save's `gestures_version < 2`, and bumps it to `2`
+in memory afterward (persisted on the next natural save). This is what lets a deliberate
+post-swap customization that happens to recreate the old factory default byte-for-byte survive —
+without the gate, `migrate_gestures`'s pure value match would silently flip it back every reload.
 
 **Gestures array schema** (settings key `gestures`; user-editable, data-driven):
 
@@ -131,7 +153,8 @@ mapping to actions per the plan's **Default gestures** table (bare_a→`menu_con
 bare_b→`menu_cancel`, bare_x→`map`, bare_y→`jump`, bare_start→`menu_open`, bare_back→`menu_focus`).
 
 Precedence rules are the plan's **Resolution rules** (trigger held ⇒ LB/RB are always
-target_previous/target_next; direct-switch and mode_switch require no trigger; RB-held + LB tap is
+target_previous/target_next, firing immediately on the bumper press with no minimum trigger-hold
+time — issue #29; direct-switch and mode_switch require no trigger; RB-held + LB tap is
 intentionally unmapped).
 
 ## Logger — `log`
@@ -246,12 +269,18 @@ assert routing through their own entry points.
 ## Frontend module contracts (for parallel 2a/2b/2c)
 
 **hud** — `hud.init(opts)` (idempotent; opts: `settings`, `addon_path`, `texts`, `images`,
-`resolve_binding`, `get_player_state`, `on_element_move(element_id, x, y)`), `hud.show()`,
-`hud.hide()`, `hud.set_display(mode_or_nil)`, `hud.refresh(view)`, `hud.tick()` (called from
+`resolve_binding`, `get_player_state`, `on_element_move(element_id, x, y)`, optional
+`direct_switch_order` — button array from `gamepad.direct_switch_order()` numbering the
+set-selector labels), `hud.show()`,
+`hud.hide()`, `hud.set_display(mode_or_nil)`, `hud.set_selector(visible)` (issue #27 RB-held
+set-selector overlay; main owns the visibility rule — RB down, neither trigger down — and the
+flag is ephemeral: cleared on every re-init, never persisted), `hud.refresh(view)`, `hud.tick()`
+(called from
 main's prerender for recast sweeps), `hud.set_draggable(bool)`, `hud.destroy()`.
 View model: `view = { active_set, set_name, mode, display_mode, slots = { [1..16] = resolved
 binding or nil } }`. Element positions persist under settings key `hud_positions[element_id] =
-{x, y}` (element ids are hud-internal; main stages the table via `settings.stage_set`).
+{x, y}` (element ids are hud-internal; main stages the table via `settings.stage_set`). The
+`set_selector` element (default 500,300) drags and persists through the same machinery.
 
 **config_ui** — `config_ui.init(opts)` (gui deps + `on_save`, `on_discard`, `launch_wizard`,
 staged-settings accessors), `config_ui.open(staged)`, `config_ui.close()`, `config_ui.is_open()`,
@@ -305,6 +334,7 @@ defaults = {
   hide_empty_slots = false,
   transparency_standard = 0, transparency_active = 0, transparency_inactive = 100,
   gestures = <default array above>,
+  gestures_version = 0,
   hud_positions = {},
 }
 ```

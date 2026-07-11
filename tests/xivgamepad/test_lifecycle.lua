@@ -24,6 +24,9 @@ local log_stub        = {}
 hud_stub.init          = function(opts)
   hud_stub._init_opts  = opts
   hud_stub._init_count = hud_stub._init_count + 1
+  -- Matches the real hud.init(), which unconditionally clears the
+  -- ephemeral selector-held state on every re-init (issue #27).
+  hud_stub._selector   = false
   table.insert(call_order, 'hud.init')
 end
 hud_stub.show          = function() hud_stub._visible = true end
@@ -35,6 +38,7 @@ hud_stub.refresh       = function(view)
 end
 hud_stub.tick          = function() hud_stub._ticks = hud_stub._ticks + 1 end
 hud_stub.set_draggable = function(v) hud_stub._draggable = v end
+hud_stub.set_selector  = function(v) hud_stub._selector = v and true or false end
 hud_stub.destroy       = function() hud_stub._destroyed = true end
 hud_stub.on_mouse      = function(mtype, x, y, delta)
   table.insert(hud_stub._mouse_calls, { mtype = mtype, x = x, y = y, delta = delta })
@@ -216,6 +220,7 @@ local function reset_stubs()
   hud_stub._destroyed     = false
   hud_stub._mouse_calls   = {}
   hud_stub._mouse_result  = false
+  hud_stub._selector      = false
 
   config_ui_stub._init_opts    = nil
   config_ui_stub._open         = false

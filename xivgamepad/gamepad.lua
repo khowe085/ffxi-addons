@@ -10,7 +10,15 @@ local SLOT_INDEX = {
   A = 5, B = 6, X = 7, Y = 8,
 }
 
+-- Deliberately not SLOT_INDEX order (issue #30): sets 1-4 on the face
+-- buttons, 5-8 on the d-pad.
 local DIRECT_SWITCH_ORDER = {
+  'Y', 'B', 'A', 'X', 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT',
+}
+
+-- Pre-#30 factory order, kept only so migrate_gestures can recognize saved
+-- entries that still match it.
+local OLD_DIRECT_SWITCH_ORDER = {
   'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT', 'A', 'B', 'X', 'Y',
 }
 
@@ -39,6 +47,7 @@ local CONTEXT_ANCHORS = {
 }
 
 local anchor_thresholds  = {}
+local direct_switch_live = {}
 local display            = { mode = nil, anchor = nil, second = nil, kind = nil }
 local display_callback
 local entry_index        = {}
@@ -49,10 +58,6 @@ local pending_double_seq = 0
 local pendings           = {}
 local schedule
 local session_seq        = 0
-local target_thresholds  = {
-  previous = DEFAULT_ANCHOR_HOLD,
-  next     = DEFAULT_ANCHOR_HOLD,
-}
 local xhb_rules          = {
   LT = { id = 'xhb_l', type = 'hold', action = 'activate_xhb_l', params = { min_hold = DEFAULT_MIN_HOLD } },
   RT = { id = 'xhb_r', type = 'hold', action = 'activate_xhb_r', params = { min_hold = DEFAULT_MIN_HOLD } },
@@ -75,6 +80,7 @@ local maybe_fallback
 local params_for
 local qualifying_anchor
 local release_display
+local resolve_slot_mode
 local schedule_thresholds
 local set_display
 local try_engage
@@ -127,6 +133,20 @@ function gamepad.default_gestures()
   return defaults
 end
 
+-- The single source of the set-number-to-button mapping (issue #27): the HUD
+-- set-selector overlay labels from this via main, never from its own copy.
+-- Reflects the live gestures array passed to the most recent set_gestures
+-- call (rebindable via the config UI's Gestures tab), falling back to the
+-- shipped default for any position whose rb_held switch_set_N entry was
+-- removed rather than rebound.
+function gamepad.direct_switch_order()
+  local order = {}
+  for n, button in ipairs(DIRECT_SWITCH_ORDER) do
+    order[n] = direct_switch_live[n] or button
+  end
+  return order
+end
+
 function gamepad.get_display_mode()
   return display.mode
 end
@@ -138,6 +158,29 @@ function gamepad.init(opts)
     return
   end
   schedule = opts.schedule
+end
+
+function gamepad.is_held(name)
+  return held[name] ~= nil
+end
+
+-- A persisted gestures array replaces code defaults wholesale on load, so
+-- saves written before the #30 order swap keep the old direct-switch layout
+-- forever without this pass. Only entries still identical to the old factory
+-- default are renumbered; user-customized entries are left untouched.
+-- Mutates in place, idempotent, returns the array.
+function gamepad.migrate_gestures(gestures)
+  for _, entry in ipairs(gestures or {}) do
+    local n = tonumber(entry.id and tostring(entry.id):match('^direct_switch_(%d+)$'))
+    if n and OLD_DIRECT_SWITCH_ORDER[n]
+      and entry.type == 'button'
+      and entry.context == 'rb_held'
+      and entry.action == 'switch_set_' .. n
+      and entry.button == OLD_DIRECT_SWITCH_ORDER[n] then
+      entry.button = DIRECT_SWITCH_ORDER[n]
+    end
+  end
+  return gestures
 end
 
 function gamepad.on_button_event(name, pressed)
@@ -174,13 +217,10 @@ function gamepad.set_gesture_callback(fn)
 end
 
 function gamepad.set_gestures(gestures)
-  entry_index       = {}
-  anchor_thresholds = {}
-  target_thresholds = {
-    previous = DEFAULT_ANCHOR_HOLD,
-    next     = DEFAULT_ANCHOR_HOLD,
-  }
-  xhb_rules         = {
+  entry_index        = {}
+  anchor_thresholds  = {}
+  direct_switch_live = {}
+  xhb_rules          = {
     LT = { id = 'xhb_l', type = 'hold', action = 'activate_xhb_l', params = { min_hold = DEFAULT_MIN_HOLD } },
     RT = { id = 'xhb_r', type = 'hold', action = 'activate_xhb_r', params = { min_hold = DEFAULT_MIN_HOLD } },
   }
@@ -193,6 +233,12 @@ function gamepad.set_gestures(gestures)
     set[value] = true
   end
   for _, entry in ipairs(gestures or {}) do
+    if entry.context == 'rb_held' then
+      local position = entry.action and entry.action:match('^switch_set_(%d+)$')
+      if position then
+        direct_switch_live[tonumber(position)] = entry.button
+      end
+    end
     local reserved = entry.context == 'trigger_held' and entry.button ~= nil
       and (SLOT_INDEX[entry.button] ~= nil or entry.button == 'LB' or entry.button == 'RB')
     local xhb_trigger
@@ -201,19 +247,10 @@ function gamepad.set_gestures(gestures)
         or (entry.button == 'RT' and entry.action == 'activate_xhb_r')) then
       xhb_trigger = entry.button
     end
-    if reserved then
-      if entry.type == 'hold_then_press' then
-        local threshold = (entry.params and entry.params.min_anchor_hold) or DEFAULT_ANCHOR_HOLD
-        if entry.button == 'LB' then
-          target_thresholds.previous = threshold
-        elseif entry.button == 'RB' then
-          target_thresholds.next = threshold
-        end
-      end
-    elseif xhb_trigger then
+    if xhb_trigger then
       xhb_rules[xhb_trigger].params.min_hold =
         (entry.params and entry.params.min_hold) or DEFAULT_MIN_HOLD
-    elseif entry.button then
+    elseif entry.button and not reserved then
       local by_context = entry_index[entry.button]
       if not by_context then
         by_context = {}
@@ -227,7 +264,7 @@ function gamepad.set_gestures(gestures)
       list[#list + 1] = entry
     end
     local anchors = CONTEXT_ANCHORS[entry.context]
-    if anchors then
+    if anchors and not reserved then
       local threshold
       if entry.type == 'hold_then_hold' then
         threshold = (entry.params and entry.params.min_hold_first) or DEFAULT_MIN_HOLD
@@ -241,10 +278,6 @@ function gamepad.set_gestures(gestures)
       end
     end
   end
-  add_threshold('LT', target_thresholds.previous)
-  add_threshold('LT', target_thresholds.next)
-  add_threshold('RT', target_thresholds.previous)
-  add_threshold('RT', target_thresholds.next)
 end
 
 -- Private functions (alphabetical)
@@ -395,17 +428,14 @@ handle_press = function(button)
   if ctx == 'trigger_held' then
     local slot = SLOT_INDEX[button]
     if slot then
-      if display.mode then
-        fire_gesture('execute_slot', { display_mode = display.mode, slot = slot })
+      local display_mode = resolve_slot_mode()
+      if display_mode then
+        fire_gesture('execute_slot', { display_mode = display_mode, slot = slot })
       end
       return
     end
     if button == 'LB' or button == 'RB' then
-      local which = button == 'LB' and 'previous' or 'next'
-      local anchor = qualifying_anchor(ctx, target_thresholds[which], nil, button)
-      if anchor then
-        fire_gesture('target_' .. which, {})
-      end
+      fire_gesture(button == 'LB' and 'target_previous' or 'target_next', {})
       return
     end
   end
@@ -574,6 +604,31 @@ release_display = function(button)
       set_display(XHB_FOR_TRIGGER[other], other, nil, nil)
     end
   end
+end
+
+-- Slot dispatch cannot wait on display.mode: it lags trigger-down by the hold
+-- threshold, so a face press inside that window would fire the stale previous
+-- half or be dropped (issue #25). Engaged WXHB/expanded modes stay
+-- authoritative; otherwise the most-recently-pressed held trigger (higher
+-- session id) resolves the half.
+resolve_slot_mode = function()
+  local mode = display.mode
+  if mode == 'wxhb_l' or mode == 'wxhb_r'
+    or mode == 'expand_lt_rt' or mode == 'expand_rt_lt' then
+    return mode
+  end
+  local lt = held.LT
+  local rt = held.RT
+  if lt and rt then
+    return lt.id > rt.id and 'xhb_l' or 'xhb_r'
+  end
+  if lt then
+    return 'xhb_l'
+  end
+  if rt then
+    return 'xhb_r'
+  end
+  return nil
 end
 
 schedule_thresholds = function(button, session)

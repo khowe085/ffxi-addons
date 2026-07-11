@@ -24,6 +24,10 @@ local log_stub        = {}
 hud_stub.init          = function(opts)
   hud_stub._init_opts  = opts
   hud_stub._init_count = hud_stub._init_count + 1
+  -- Mirrors the real hud.lua: re-init always clears the ephemeral
+  -- set-selector flag, so any caller that re-inits must recompute
+  -- afterward if the overlay should still be showing.
+  hud_stub._selector   = false
 end
 hud_stub.show          = function() hud_stub._visible = true end
 hud_stub.hide          = function() hud_stub._visible = false end
@@ -37,6 +41,10 @@ hud_stub.tick          = function()
   table.insert(tick_order, 'hud.tick')
 end
 hud_stub.set_draggable = function(v) hud_stub._draggable = v end
+hud_stub.set_selector  = function(v)
+  hud_stub._selector = v and true or false
+  table.insert(hud_stub._selector_calls, hud_stub._selector)
+end
 hud_stub.destroy       = function() hud_stub._destroyed = true end
 hud_stub.on_mouse      = function(mtype, x, y, delta)
   table.insert(hud_stub._mouse_calls, { mtype = mtype, x = x, y = y, delta = delta })
@@ -218,6 +226,8 @@ local function reset_stubs()
   hud_stub._destroyed     = false
   hud_stub._mouse_calls   = {}
   hud_stub._mouse_result  = false
+  hud_stub._selector       = false
+  hud_stub._selector_calls = {}
 
   config_ui_stub._init_opts    = nil
   config_ui_stub._open         = false
@@ -472,6 +482,134 @@ test('save reconfigures gestures and reindexes gesture dispatch', function()
   assert_eq(0, #windower._commands, 'removed default gesture no longer dispatches')
 end)
 
+-- A saved settings file replaces the gestures defaults wholesale, so files
+-- written before the #30 direct-switch order swap must be renumbered at init
+-- (in memory only; no forced write) and again after a discard reload, whose
+-- disk file may still hold the old order.
+
+local OLD_DIRECT_ORDER = { 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT', 'A', 'B', 'X', 'Y' }
+local NEW_DIRECT_ORDER = { 'Y', 'B', 'A', 'X', 'DPAD_UP', 'DPAD_RIGHT', 'DPAD_DOWN', 'DPAD_LEFT' }
+
+local function old_order_settings_json()
+  local parts = {}
+  for n = 1, 8 do
+    parts[#parts + 1] = string.format(
+      '{"id":"direct_switch_%d","type":"button","button":"%s",' ..
+      '"context":"rb_held","action":"switch_set_%d","params":{}}',
+      n, OLD_DIRECT_ORDER[n], n)
+  end
+  return '{"key_mapping_complete":true,"gestures":[' .. table.concat(parts, ',') .. ']}'
+end
+
+-- gestures_version explicitly present in the saved file, with the
+-- direct-switch buttons following the given order.
+local function versioned_settings_json(order, version)
+  local parts = {}
+  for n = 1, 8 do
+    parts[#parts + 1] = string.format(
+      '{"id":"direct_switch_%d","type":"button","button":"%s",' ..
+      '"context":"rb_held","action":"switch_set_%d","params":{}}',
+      n, order[n], n)
+  end
+  return string.format(
+    '{"key_mapping_complete":true,"gestures_version":%d,"gestures":[%s]}',
+    version, table.concat(parts, ','))
+end
+
+test('init renumbers a pre-swap direct-switch file in memory without writing', function()
+  vfs = {}
+  vfs[char_path] = old_order_settings_json()
+  local before = vfs[char_path]
+  local a = load_addon()
+  a.init()
+  local buttons = {}
+  for _, entry in ipairs(a._get_live().gestures) do
+    buttons[entry.id] = entry.button
+  end
+  assert_eq('Y',         buttons.direct_switch_1, 'set 1 moved to Y')
+  assert_eq('X',         buttons.direct_switch_4, 'set 4 moved to X')
+  assert_eq('DPAD_UP',   buttons.direct_switch_5, 'set 5 moved to DPAD_UP')
+  assert_eq('DPAD_LEFT', buttons.direct_switch_8, 'set 8 moved to DPAD_LEFT')
+  assert_eq(before, vfs[char_path], 'no forced write at init')
+  assert_eq(2, a._get_live().gestures_version,
+    'gestures_version bumped to 2 in memory (a save with no key defaults to 0)')
+end)
+
+test('discard reloads the pre-swap file and re-migrates', function()
+  vfs = {}
+  vfs[char_path] = old_order_settings_json()
+  local a = load_addon()
+  a.init()
+  a.dispatch('config')
+  a.dispatch('discard')
+  local buttons = {}
+  for _, entry in ipairs(a._get_live().gestures) do
+    buttons[entry.id] = entry.button
+  end
+  assert_eq('Y',       buttons.direct_switch_1, 'reload from the old-order file re-migrated')
+  assert_eq('DPAD_UP', buttons.direct_switch_5, 'd-pad half re-migrated too')
+  assert_eq(2, a._get_live().gestures_version, 'discard reload re-bumped gestures_version to 2')
+end)
+
+test('a gestures_version 2 save that recreates the old factory default is NOT migrated', function()
+  vfs = {}
+  vfs[char_path] = versioned_settings_json(OLD_DIRECT_ORDER, 2)
+  local a = load_addon()
+  a.init()
+  local buttons = {}
+  for _, entry in ipairs(a._get_live().gestures) do
+    buttons[entry.id] = entry.button
+  end
+  assert_eq('DPAD_UP', buttons.direct_switch_1,
+    'deliberate post-swap customization back to the old default sticks')
+  assert_eq('Y',       buttons.direct_switch_8,
+    'deliberate post-swap customization back to the old default sticks')
+  assert_eq(2, a._get_live().gestures_version, 'gestures_version stays 2')
+end)
+
+test('a gestures_version 2 save already in the current order is a no-op', function()
+  vfs = {}
+  vfs[char_path] = versioned_settings_json(NEW_DIRECT_ORDER, 2)
+  local a = load_addon()
+  a.init()
+  local buttons = {}
+  for _, entry in ipairs(a._get_live().gestures) do
+    buttons[entry.id] = entry.button
+  end
+  for n = 1, 8 do
+    assert_eq(NEW_DIRECT_ORDER[n], buttons['direct_switch_' .. n],
+      'current-order entry ' .. n .. ' left untouched')
+  end
+  assert_eq(2, a._get_live().gestures_version, 'gestures_version unchanged')
+end)
+
+test('a genuinely fresh install (no settings file at all) lands on gestures_version 2', function()
+  vfs = {}
+  local a = load_addon()
+  a.init()
+  assert_eq(2, a._get_live().gestures_version,
+    'fresh install has nothing to migrate but still lands on the current marker')
+  local buttons = {}
+  for _, entry in ipairs(a._get_live().gestures) do
+    buttons[entry.id] = entry.button
+  end
+  for n = 1, 8 do
+    assert_eq(NEW_DIRECT_ORDER[n], buttons['direct_switch_' .. n],
+      'fresh install ships the new (post-#30) direct-switch order at position ' .. n)
+  end
+end)
+
+test('a save after a migrated load persists gestures_version 2 to the settings file', function()
+  vfs = {}
+  vfs[char_path] = old_order_settings_json()
+  local a = load_addon()
+  a.init()
+  a.dispatch('config')
+  a.dispatch('save')
+  assert(contains(vfs[char_path], '"gestures_version":2'),
+    'save after a migrated load writes gestures_version 2 to disk')
+end)
+
 test('save without an open session is a safe no-op', function()
   local a = fresh()
   local before = vfs[char_path]
@@ -620,6 +758,15 @@ test('learn starts the wizard with the current mapping and enters learn mode', f
     'wizard pre-loaded with the live mapping')
 end)
 
+test('starting the wizard while RB is held does not strand the selector visible', function()
+  local a = fresh()
+  a.on_button('RB', true)
+  assert_eq(true, hud_stub._selector, 'shown before the wizard starts')
+  a.dispatch('learn')
+  assert_eq(false, hud_stub._selector,
+    'gamepad.reset clears the stale held RB; the selector is recomputed hidden')
+end)
+
 test('l is an alias for learn; learn while active is a no-op', function()
   local a = fresh()
   a.dispatch('l')
@@ -752,6 +899,71 @@ test('test_mode feeds button events to both the tester and the gamepad', functio
   assert_eq(true, tester_stub._buttons[1].pressed, 'edge direction forwarded')
   windower._events['keyboard'](2, false)
   assert_eq(2, #tester_stub._buttons, 'tester saw the release')
+end)
+
+-- ---- RB-held set-selector wiring (issue #27)
+
+test('hud init opts carry gamepad\'s direct-switch order, not a copy', function()
+  fresh()
+  local gamepad = require('gamepad')
+  local expected = gamepad.direct_switch_order()
+  local got = hud_stub._init_opts.direct_switch_order
+  assert_eq('table', type(got), 'direct_switch_order injected into hud opts')
+  assert_eq(#expected, #got, 'full order injected')
+  for n, button in ipairs(expected) do
+    assert_eq(button, got[n], 'order position ' .. n)
+  end
+end)
+
+test('RB press with no trigger shows the set selector; release hides it', function()
+  local a = fresh()
+  a.on_button('RB', true)
+  assert_eq(true, hud_stub._selector, 'selector shown on bare RB down')
+  a.on_button('RB', false)
+  assert_eq(false, hud_stub._selector, 'selector hidden on RB release')
+end)
+
+test('RB pressed while a trigger is held never shows the selector', function()
+  local a = fresh()
+  a.on_button('LT', true)
+  a.on_button('RB', true)
+  assert_eq(false, hud_stub._selector, 'trigger-held RB is target_next, not the selector')
+  a.on_button('RB', false)
+  a.on_button('LT', false)
+  assert_eq(false, hud_stub._selector, 'still hidden after the releases')
+end)
+
+test('a trigger going down mid-hold hides the selector; its release restores it', function()
+  local a = fresh()
+  a.on_button('RB', true)
+  assert_eq(true, hud_stub._selector, 'shown on RB down')
+  a.on_button('RT', true)
+  assert_eq(false, hud_stub._selector, 'hidden the moment a trigger goes down')
+  a.on_button('RT', false)
+  assert_eq(true, hud_stub._selector, 'recomputed on the trigger release: RB still held')
+  a.on_button('RB', false)
+  assert_eq(false, hud_stub._selector, 'hidden once RB is released')
+end)
+
+test('a direct-switch press while RB held keeps the selector visible', function()
+  local a = fresh()
+  a.on_button('RB', true)
+  assert_eq(true, hud_stub._selector, 'shown on RB down')
+  a.on_button('B', true) -- direct_switch_2 in the new order
+  assert_eq(2, a._get_live().active_set, 'face B switched to set 2')
+  assert_eq(true, hud_stub._selector,
+    'commit_live -> hud.init must not strand the overlay hidden while RB is still held')
+  a.on_button('B', false)
+  a.on_button('RB', false)
+  assert_eq(false, hud_stub._selector, 'still hides normally once RB is released')
+end)
+
+test('a cutscene clears the selector along with the gamepad state', function()
+  local a = fresh()
+  a.on_button('RB', true)
+  assert_eq(true, hud_stub._selector, 'shown before the event')
+  windower._events['status change'](4)
+  assert_eq(false, hud_stub._selector, 'status 4 reset cleared the selector')
 end)
 
 test('open_binder toggles the binder with the display context', function()
