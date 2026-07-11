@@ -239,6 +239,98 @@ test('wxhb/expanded active half follows the configured display half', function()
   assert_eq(255, hud._layers_for_test(9).icon._alpha, 'expand_lt_rt half=right: right active')
 end)
 
+-- ---- WXHB always-show amendment
+
+test('always_show_wxhb renders a half assigned to a WXHB view at transparency_standard while idle-relative-to-that-mode', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  hud.set_display('xhb_l')
+  assert_eq(255, hud._layers_for_test(1).icon._alpha, 'live-engaged half unchanged (active)')
+  assert_eq(204, hud._layers_for_test(9).icon._alpha,
+    'right half (default wxhb_r assigned there) renders at standard instead of inactive')
+end)
+
+test('the RT mirror: always_show_wxhb renders the left half at transparency_standard while the right half is live', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  hud.set_display('xhb_r')
+  assert_eq(255, hud._layers_for_test(9).icon._alpha, 'live-engaged half unchanged (active)')
+  assert_eq(204, hud._layers_for_test(1).icon._alpha,
+    'left half (default wxhb_l assigned there) renders at standard instead of inactive')
+end)
+
+test('a half with no WXHB view assigned to it stays inactive even with always_show_wxhb on', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  settings.display.wxhb_r = nil
+  hud.set_display('xhb_l')
+  assert_eq(102, hud._layers_for_test(9).icon._alpha,
+    'right half keeps the inactive transparency: no wxhb view assigned to it')
+end)
+
+test('always_show_wxhb false leaves the inactive half unchanged regardless of a matching assignment', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = false
+  hud.set_display('xhb_l')
+  assert_eq(102, hud._layers_for_test(9).icon._alpha,
+    'flag off: assignment alone does not change the inactive half (byte-for-byte regression guard)')
+end)
+
+test('always_show_wxhb does not affect idle transparency: both halves already standard', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  assert_eq(204, hud._layers_for_test(1).icon._alpha, 'idle left half still standard')
+  assert_eq(204, hud._layers_for_test(9).icon._alpha, 'idle right half still standard')
+end)
+
+test('always_show_wxhb wins over the live half when both wxhb assignments target the same half', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  settings.display.wxhb_l.half = 'right'
+  hud.set_display('xhb_l')
+  assert_eq(255, hud._layers_for_test(1).icon._alpha, 'left half stays live-active (branch order unaffected)')
+  assert_eq(204, hud._layers_for_test(9).icon._alpha,
+    'right half now covered by both wxhb_l and wxhb_r: still standard, not double-counted')
+end)
+
+test('an engaged Expanded gesture is unaffected by always_show_wxhb: neither half is promoted', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  hud.set_display('expand_lt_rt')
+  assert_eq(102, hud._layers_for_test(1).icon._alpha,
+    'left half (default wxhb_l assigned there) stays inactive: Expanded owns both halves, override never applies')
+  assert_eq(255, hud._layers_for_test(9).icon._alpha,
+    'right half (expand_lt_rt half=right) is the live-active half, unaffected by the flag')
+end)
+
+test('recast sweeps animate unaffected on a half rendered via always-show', function()
+  fresh()
+  hud.show()
+  hud.refresh(make_view())
+  settings.always_show_wxhb = true
+  hud.set_display('xhb_l')
+  local sweep1 = hud._layers_for_test(1).sweep
+  windower.ffxi._spell_recasts[1] = 1800
+  hud.tick()
+  assert_eq(true, sweep1:visible(), 'sweep still animates on the live-active half')
+  assert_eq(ADDON_PATH .. 'images/icons/iconpacks/default/ui/frame_step4.png', sweep1:path(),
+    '30s of 60s cooldown -> step 4 of 8, unaffected by always_show_wxhb')
+end)
+
 test('unusable slots fade against the current transparency', function()
   fresh()
   hud.show()

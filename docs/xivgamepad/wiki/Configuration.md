@@ -35,6 +35,12 @@ One row per set position (1–8) showing its name, source, and cycle flag.
   `inactive` (the other half). Values run 0 (fully visible) to 100 (invisible); click the left
   half of the row to lower by 10, the right half to raise by 10. The default of `inactive = 100`
   makes the non-displayed half vanish while a trigger is held.
+- `always_show_wxhb` — click to toggle. When on, each screen half that isn't the half you're
+  currently holding a trigger for still shows its assigned WXHB-L / WXHB-R content (if one is
+  assigned there), at the `standard` transparency, instead of going invisible or falling back to
+  the active set. You can still only *press* a WXHB slot while actually holding its trigger — this
+  only changes what's visible while idle, matching FFXIV's own WXHB "always display" option. Off by
+  default.
 - `skillchain_display` — click to toggle the
   [skillchain display](Skillchains-and-Mounts.md): the Wait/Go window timer and the per-slot
   chain highlights. On by default; turning it on mid-session takes effect without a reload.

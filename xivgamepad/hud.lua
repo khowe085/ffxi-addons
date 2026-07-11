@@ -84,6 +84,16 @@ local MODE_LABELS = {
   expand_rt_lt = 'Expanded RT>LT',
 }
 
+-- Expanded gestures (unlike single-trigger XHB/WXHB) always own BOTH screen
+-- halves from one live-engaged position (plan Finding 3); the WXHB
+-- always-show override must never treat either half as idle while one of
+-- these is engaged. xivgamepad.lua's build_view upholds the same invariant
+-- on the content side -- keep both in sync.
+local EXPANDED_MODES = {
+  expand_lt_rt = true,
+  expand_rt_lt = true,
+}
+
 -- Type fallback art re-pointed at the shipped default iconpack (the old
 -- images/types/* paths shipped nowhere). Each pick is the closest existing
 -- asset; none are authored for this purpose except attack/ranged/item/mount/
@@ -125,6 +135,7 @@ local resource_cache = {}
 
 local active_half
 local alpha_from_transparency
+local always_show_half
 local element_at
 local entry_for
 local find_resource
@@ -427,6 +438,24 @@ alpha_from_transparency = function(transparency)
   return math.floor((100 - transparency) * 255 / 100 + 0.5)
 end
 
+-- WXHB always-show amendment: true when a wxhb_l/wxhb_r view is assigned to
+-- half_id via settings.display (content resolution stays main's job -- this
+-- only decides whether the half earns transparency_standard instead of
+-- transparency_inactive while it isn't the live-active half). An engaged
+-- Expanded gesture owns both halves already (see EXPANDED_MODES) -- no half
+-- is ever eligible for the override while one is live, full stop.
+always_show_half = function(half_id)
+  if EXPANDED_MODES[state.display] then return false end
+  local display = state.settings.display
+  if not display then return false end
+  local wanted = half_id == 'half_left' and 'left' or 'right'
+  local wl = display.wxhb_l
+  if wl and wl.half == wanted then return true end
+  local wr = display.wxhb_r
+  if wr and wr.half == wanted then return true end
+  return false
+end
+
 element_at = function(x, y)
   for _, id in ipairs(ELEMENT_IDS) do
     local pos = state.positions[id]
@@ -680,6 +709,13 @@ slot_transparency = function(i)
   end
   if half_id == active then
     return settings.transparency_active or 0
+  end
+  -- Redundant with always_show_half's own guard, by design: an Expanded
+  -- gesture owns both halves while live, so the override must never fire
+  -- here either (see EXPANDED_MODES).
+  if settings.always_show_wxhb and not EXPANDED_MODES[state.display]
+    and always_show_half(half_id) then
+    return settings.transparency_standard or 0
   end
   return settings.transparency_inactive or 100
 end

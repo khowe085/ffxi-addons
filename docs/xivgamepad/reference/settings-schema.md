@@ -16,6 +16,7 @@ Windower `files` API. Player-facing docs: [../wiki/Home.md](../wiki/Home.md).
 | `key_mapping` | table below | Virtual button → key entry. |
 | `sets` | table below | Position metadata only (content lives in storage files). |
 | `display` | table below | Set + half per non-XHB view. |
+| `always_show_wxhb` | `false` | Global toggle: when true, each screen half not currently the live gesture-engaged half shows its assigned `wxhb_l`/`wxhb_r` view's content (if one is assigned there) at `transparency_standard`, instead of the idle `active_set` fallback / `transparency_inactive`. WXHB only — `expand_lt_rt`/`expand_rt_lt` are unaffected. Display-only: does not change when a slot actually fires (`gamepad.lua`'s hold gesture is unaffected). |
 | `hide_empty_slots` | `false` | HUD hides empty slot frames (positions reserved). |
 | `transparency_standard` | `0` | 0 = opaque … 100 = invisible; alpha = round((100 − t) × 255 / 100). |
 | `transparency_active` | `0` | Displayed half while a view is active. |

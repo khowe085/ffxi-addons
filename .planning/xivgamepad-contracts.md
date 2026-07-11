@@ -466,3 +466,28 @@ binding type special-cases the action name `'Mount Roulette'` → `run_action('m
 > `windower.ffxi_path`) nor perform binary seeks into ROM DAT files. This file uses `io.open`
 > read-only against the game's ROM DATs and write-only to produce 32x32 BMP files under
 > `xivgamepad/data/icons/`. No other addon file may use or require `io`.
+
+## WXHB always-show amendment (frozen)
+
+Companion to `.planning/xivgamepad-wxhb-always-show.md`. `gamepad.lua`'s contract (state machine,
+`display.mode` transitions, `execute_slot` dispatch) is **unchanged** — this is a display-only
+addition resolved entirely in main's view-building and `hud`'s rendering.
+
+### New settings key (frozen)
+
+`always_show_wxhb = false` (top-level default; toggled from the config GUI's Display tab). A
+single global flag — when `true`, both `wxhb_l` and `wxhb_r`'s assigned set/half render at
+`transparency_standard` on their configured screen half whenever that half isn't currently the
+live gesture-engaged half. When `false`, behavior is byte-for-byte identical to today.
+
+### View contract addition
+
+`hud.refresh(view)`'s `view.slots[1..16]` continues to be a single flat array, but when
+`always_show_wxhb` is enabled, **main** (not hud) resolves it per screen half instead of from one
+position: for each half (`half_left` = slots 1-8, `half_right` = slots 9-16), if a live gesture
+currently owns that half, its content wins (unchanged today's behavior); otherwise, if
+`always_show_wxhb` is true and a `wxhb_l`/`wxhb_r` view is assigned to that half (via
+`display[mode].half`), that view's assigned set fills the half at `transparency_standard`;
+otherwise, today's `active_set` fallback fills the half unchanged. `hud.lua` does not gain any new
+content-resolution logic — it only gains the ability to render a half at `transparency_standard`
+that isn't the live-active half, which the existing transparency plumbing already supports.

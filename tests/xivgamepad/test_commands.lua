@@ -924,6 +924,175 @@ test('display transitions drive the HUD and the view model', function()
   assert_eq(nil, view.slots[5], 'empty slots stay nil in the view')
 end)
 
+-- ---- WXHB always-show amendment
+
+test('always_show_wxhb false (default): idle view unaffected, byte-for-byte identical to today', function()
+  local a = fresh({ content = true })
+  local view = hud_stub._last_view
+  assert_eq(false, a._get_live().always_show_wxhb, 'flag defaults false')
+  assert_eq('Provoke',    view.slots[1].action, 'left half from active_set (position 1)')
+  assert_eq('Fast Blade', view.slots[9].action, 'right half from the same active_set position')
+  assert_eq(nil, view.slots[2], 'wxhb-only content (position 2) is not blended in while off')
+end)
+
+test('always_show_wxhb true: an idle half assigned to a WXHB view shows that view content', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  local view = hud_stub._last_view
+  assert_eq('Cure', view.slots[2].action,
+    'left half now filled by wxhb_l assigned position 2 (default half=left)')
+  assert_eq(nil, view.slots[1], 'position 2 has nothing at slot 1: left half fully replaced, not blended')
+  assert_eq(nil, view.slots[9], 'right half filled by wxhb_r assigned position 2, which has nothing there')
+end)
+
+test('always_show_wxhb true: each idle half independently resolves its own assigned position', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'active_set', 3)
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 1, half = 'left' },
+    wxhb_r       = { set = 1, half = 'right' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  local view = hud_stub._last_view
+  assert_eq('Provoke',    view.slots[1].action, 'left half pulled from wxhb_l set 1, not active_set 3')
+  assert_eq('Fast Blade', view.slots[9].action, 'right half pulled from wxhb_r set 1 simultaneously')
+  assert_eq(3, view.active_set, 'view metadata (label/active_set) still reflects active_set while idle')
+end)
+
+test('a live-engaged half always wins over always-show; the other half still gets its WXHB content', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'active_set', 3)
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 1, half = 'left' },
+    wxhb_r       = { set = 1, half = 'right' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  a.dispatch_gesture('xhb_l', {})
+  local view = hud_stub._last_view
+  assert_eq('input /wave', view.slots[1].action,
+    'left half is live-engaged (xhb_l): shows active_set 3, not wxhb_l set 1')
+  assert_eq('Fast Blade', view.slots[9].action,
+    'right half is not live: always-show still fills it from wxhb_r set 1')
+end)
+
+test('the RT mirror: a live-engaged right half always wins over always-show; the left half still gets its WXHB content', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'active_set', 3)
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 1, half = 'left' },
+    wxhb_r       = { set = 1, half = 'right' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  a.dispatch_gesture('xhb_r', {})
+  local view = hud_stub._last_view
+  assert_eq(nil, view.slots[9],
+    'right half is live-engaged (xhb_r): shows active_set 3 (empty at slot 9), not wxhb_r set 1 (Fast Blade)')
+  assert_eq('Provoke', view.slots[1].action,
+    'left half is not live: always-show still fills it from wxhb_l set 1')
+end)
+
+test('always_show_wxhb true: an engaged Expanded gesture fills both halves from its own set, never swapped for wxhb content', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'active_set', 3)
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 2, half = 'left' },
+    wxhb_r       = { set = 2, half = 'right' },
+    expand_lt_rt = { set = 1, half = 'right' },
+    expand_rt_lt = { set = 1, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  a.dispatch_gesture('expand_lt_rt', {})
+  local view = hud_stub._last_view
+  assert_eq('Provoke', view.slots[1].action,
+    'left half comes from expand_lt_rt own set 1, not wxhb_l set 2 (which has nothing at slot 1)')
+  assert_eq(nil, view.slots[2],
+    'left half is not blended with wxhb_l set 2, which would put Cure at slot 2')
+  assert_eq('Fast Blade', view.slots[9].action,
+    'right half comes from the same engaged set 1 as the left half, not wxhb_r set 2')
+end)
+
+test('execute_slot dispatch is unaffected by always_show_wxhb (resolves via display_target, not the view)', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 2, half = 'left' },
+    wxhb_r       = { set = 6, half = 'right' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  a.dispatch('save')
+  a.dispatch_gesture('execute_slot', { display_mode = 'wxhb_l', slot = 2 })
+  assert(contains(commands_text(), 'input /ma "Cure" <me>'),
+    'wxhb_l still resolves its own assigned set 2, left half, exactly as without the flag')
+end)
+
+test('always_show_wxhb true: wxhb_l wins content when both wxhb views collide on the same half (reachable by toggling each view to the same half)', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 1, half = 'left' },
+    wxhb_r       = { set = 2, half = 'left' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  local view = hud_stub._last_view
+  assert_eq('Provoke', view.slots[1].action,
+    'left half resolves wxhb_l set 1 (precedence), not wxhb_r set 2')
+  assert_eq(nil, view.slots[2],
+    'wxhb_r set 2 content (Cure at slot 2) does not leak in: wxhb_l wins outright, not blended')
+end)
+
+test('always_show_wxhb true: a half with no WXHB view assigned falls back to active_set content, not blank or stale', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { set = 2, half = 'left' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  local view = hud_stub._last_view
+  assert_eq('Cure', view.slots[2].action, 'left half filled by wxhb_l set 2 (sanity: the flag is working)')
+  assert_eq('Fast Blade', view.slots[9].action,
+    'right half has no wxhb_l/wxhb_r view assigned to it: falls back to active_set 1 content')
+end)
+
+test('always_show_wxhb true: a wxhb_l entry with .half set but no usable .set falls through to wxhb_r for that half', function()
+  local a = fresh({ content = true })
+  a.dispatch('config')
+  settings.stage_set(a._get_staged(), 'display', {
+    wxhb_l       = { half = 'left' },
+    wxhb_r       = { set = 6, half = 'left' },
+    expand_lt_rt = { set = 4, half = 'right' },
+    expand_rt_lt = { set = 4, half = 'right' },
+  })
+  settings.stage_set(a._get_staged(), 'always_show_wxhb', true)
+  a.dispatch('save')
+  local view = hud_stub._last_view
+  assert_eq('input /heal', view.slots[1].action,
+    'wxhb_l has no usable .set (corrupted/hand-edited settings): falls through to wxhb_r set 6, not nil')
+end)
+
 -- ---- crossbar adapter wiring
 
 test('incoming chunk 0x055 refreshes mounts; other ids do not', function()

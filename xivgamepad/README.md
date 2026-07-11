@@ -56,9 +56,10 @@ neutralization binds; it is not a player command. Unknown commands print the hel
 
 `//xg config` opens a configuration window (built on `lib/settings/config_gui`) with four tabs:
 **Sets** (name, shared/job source, and skip-cycle flag for the 8 set positions), **Display** (set
-and half assigned to each WXHB/Expanded view, hide-empty-slots, transparency), **Keys** (the
-captured key for every virtual button, plus a Capture / Re-learn control that launches the
-Key-Capture Wizard), and **Gestures** (add, edit, remove, and time-tune gesture definitions). Rows
+and half assigned to each WXHB/Expanded view, hide-empty-slots, transparency, an always-show toggle
+for the WXHB halves), **Keys** (the captured key for every virtual button, plus a Capture / Re-learn
+control that launches the Key-Capture Wizard), and **Gestures** (add, edit, remove, and time-tune
+gesture definitions). Rows
 are edited by clicking directly on their values. While the window is open every HUD element is
 draggable; all changes are staged and only written on **Save** (**Discard** reverts them, including
 HUD positions). Slot bindings are assigned in-game with the Binder, not in this window. See the
@@ -92,6 +93,7 @@ abbreviation) and is written by the Binder. Key settings:
 | `key_mapping_complete`    | boolean | First-run flag; while false the Key-Capture Wizard opens on login.       |
 | `sets`                    | table   | Per-position metadata: `name`, `source` (`job`/`shared`), `skip_cycle`.  |
 | `display`                 | table   | Set + half assigned to each WXHB/Expanded view.                          |
+| `always_show_wxhb`        | boolean | Show WXHB-L/WXHB-R content on their assigned half even while idle, at `transparency_standard` (default false). |
 | `hide_empty_slots`        | boolean | Hide empty slot frames on the HUD.                                       |
 | `transparency_standard`   | number  | HUD transparency (0–100) when no view is active.                         |
 | `transparency_active`     | number  | Transparency of the displayed half while a view is active.               |

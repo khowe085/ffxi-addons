@@ -355,6 +355,28 @@ test('reset drops display state and reports idle', function()
   assert_eq('xhb_l', gamepad.get_display_mode(), 're-engages cleanly after reset')
 end)
 
+-- ---- WXHB always-show amendment (display-only; gamepad has zero awareness)
+
+test('display engagement and execute_slot dispatch are unaffected by a nearby "always show" setting', function()
+  -- gamepad.init/set_gestures take no settings-shaped argument at all, so an
+  -- always_show_wxhb concept cannot influence this module -- this regression
+  -- guard proves the hold-gesture timing/dispatch sequence is identical
+  -- whether or not such a table exists in scope around it.
+  local unrelated_settings = { always_show_wxhb = true }
+  setup()
+  press('LT')
+  assert_eq(nil, gamepad.get_display_mode(), 'not engaged before min_hold, regardless of always_show_wxhb')
+  run_timers()
+  assert_eq('xhb_l', gamepad.get_display_mode(), 'engaged only after the same hold threshold as always')
+  press('A')
+  release('A')
+  assert_eq(1, #fired, 'execute_slot still requires the live-engaged display to fire')
+  assert_eq('execute_slot', fired[1].id, 'slot press dispatched normally')
+  release('LT')
+  assert_eq(nil, gamepad.get_display_mode(), 'idle after release; nothing keeps the display artificially engaged')
+  assert_eq(true, unrelated_settings.always_show_wxhb, 'sanity: the unrelated table itself is untouched')
+end)
+
 -- ---- Slot execution
 
 test('execute_slot addresses d-pad 1-4 and faces 5-8 of the displayed half', function()

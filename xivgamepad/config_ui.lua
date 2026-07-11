@@ -309,6 +309,12 @@ function config_ui.stage_window_pos(x, y)
   host.on_change('config_y', y)
 end
 
+function config_ui.toggle_always_show_wxhb()
+  local s = staged()
+  if s == nil then return end
+  change('always_show_wxhb', not s.always_show_wxhb)
+end
+
 function config_ui.toggle_display_half(mode_key)
   local s = staged()
   local display = s and s.display
@@ -408,6 +414,10 @@ display_rows = function(s)
       end,
     }
   end
+  rows[#rows + 1] = {
+    text = 'always_show_wxhb: ' .. tostring(s.always_show_wxhb or false),
+    on_click = function() config_ui.toggle_always_show_wxhb() end,
+  }
   rows[#rows + 1] = {
     text = 'skillchain_display: ' .. tostring(s.skillchain_display or false),
     on_click = function() config_ui.toggle_skillchain_display() end,

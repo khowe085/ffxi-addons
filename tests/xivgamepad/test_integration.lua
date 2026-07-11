@@ -632,6 +632,64 @@ test('WS resonance drives the sc_timer and slot highlight; the toggle disables b
   assert_eq(false, hud._sc_timer_for_test():visible(), 'disabled adapter ignores further actions')
 end)
 
+-- ---- (l2) WXHB always-show: settings -> build_view -> hud, end to end
+
+local ALWAYS_SHOW_SETTINGS = '{"key_mapping_complete":true,"hide_empty_slots":true,'
+  .. '"transparency_standard":20,"transparency_active":0,"transparency_inactive":60}'
+
+local ALWAYS_SHOW_JOB_CONTENT = '{"WAR": {'
+  .. '"1": {"slots": {"5": {"type": "ma", "action": "Cure", "target": "t"}}},'
+  .. '"2": {"slots": {'
+  .. '"1": {"type": "ja", "action": "Provoke", "target": "t"},'
+  .. '"9": {"type": "ws", "action": "Fast Blade", "target": "t"}}}}}'
+
+test('always_show_wxhb: settings toggle drives build_view and hud transparency end to end', function()
+  local a = fresh({ settings = ALWAYS_SHOW_SETTINGS, job_content = ALWAYS_SHOW_JOB_CONTENT })
+  local gamepad   = require('gamepad')
+  local hud       = require('hud')
+  local config_ui = require('config_ui')
+
+  -- Idle, flag off (default): only active_set (position 1, slot 5) renders.
+  assert_eq(true,  hud._layers_for_test(5).icon:visible(), 'active_set slot 5 (Cure) visible while idle')
+  assert_eq(false, hud._layers_for_test(1).icon:visible(), 'wxhb-only slot 1 hidden while the flag is off')
+  assert_eq(false, hud._layers_for_test(9).icon:visible(), 'wxhb-only slot 9 hidden while the flag is off')
+
+  -- Enable always_show_wxhb through the real config window and save.
+  windower._events['addon command']('config')
+  config_ui.toggle_always_show_wxhb()
+  assert_eq(true,  a._get_staged().always_show_wxhb, 'toggle staged')
+  assert_eq(false, a._get_live().always_show_wxhb,   'live untouched before save')
+  windower._events['addon command']('save')
+  assert_eq(true, a._get_live().always_show_wxhb, 'toggle committed')
+  assert(contains(windower._fs[settings_file], '"always_show_wxhb":true'),
+    'toggle persisted into the settings file in _fs')
+
+  -- Idle, flag on: both WXHB-assigned halves (default wxhb_l/wxhb_r -> set 2)
+  -- now render at the standard idle transparency; position 1's own slot 5 is
+  -- no longer part of either half.
+  assert_eq(true, hud._layers_for_test(1).icon:visible(), 'wxhb_l set 2 slot 1 (Provoke) now visible')
+  assert_eq(204,  hud._layers_for_test(1).icon._alpha,    'idle standard transparency (20 -> 204)')
+  assert_eq(true, hud._layers_for_test(9).icon:visible(), 'wxhb_r set 2 slot 9 (Fast Blade) now visible')
+  assert_eq(204,  hud._layers_for_test(9).icon._alpha,    'idle standard transparency on the right half too')
+  assert_eq(false, hud._layers_for_test(5).icon:visible(), 'position 1 no longer feeds either half')
+
+  -- Hold LT: XHB-L engages the left half from active_set (unchanged from
+  -- today); the right half is not live, so always-show keeps rendering
+  -- wxhb_r's content there, now at transparency_standard instead of inactive.
+  key(KEY_LT, true)
+  windower._run_scheduled()
+  assert_eq('xhb_l', gamepad.get_display_mode(), 'hold engaged XHB-L')
+  assert_eq(true, hud._layers_for_test(5).icon:visible(), 'live left half shows active_set slot 5 again')
+  assert_eq(255,  hud._layers_for_test(5).icon._alpha,    'live half renders at the active transparency')
+  assert_eq(true, hud._layers_for_test(9).icon:visible(), 'right half keeps showing wxhb_r content while not live')
+  assert_eq(204,  hud._layers_for_test(9).icon._alpha,
+    'right half renders at standard, not the inactive alpha it would use without the flag')
+
+  key(KEY_LT, false)
+  windower._run_scheduled()
+  assert_eq(nil, gamepad.get_display_mode(), 'display released with the trigger')
+end)
+
 -- ---- (m) unload with the crossbar features live
 
 test('unload with crossbar state live tears down cleanly (icons closed)', function()

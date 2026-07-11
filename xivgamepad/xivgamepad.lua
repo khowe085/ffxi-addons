@@ -49,6 +49,24 @@ local NOOP_BIND_KEYS = {
   'f9', 'f10', 'f11', 'f12',
 }
 
+-- Screen-half slot ranges (half_left = indices 1-8, half_right = 9-16),
+-- shared by build_view's per-half content resolution (WXHB always-show
+-- amendment: .planning/xivgamepad-contracts.md).
+local SCREEN_HALVES = {
+  { half = 'left',  from = 1, to = 8 },
+  { half = 'right', from = 9, to = 16 },
+}
+
+-- Expanded gestures (unlike single-trigger XHB/WXHB) always own BOTH screen
+-- halves from one live-engaged 16-slot position (plan Finding 3); the WXHB
+-- always-show override must never treat either half as idle while one of
+-- these is engaged. hud.lua's always_show_half/slot_transparency must
+-- uphold the same invariant -- keep both in sync.
+local EXPAND_DISPLAY_MODES = {
+  expand_lt_rt = true,
+  expand_rt_lt = true,
+}
+
 local binder_mode     = false
 local char_name
 local current_display
@@ -117,6 +135,7 @@ local toggle_binder
 local toggle_mode
 local wizard_cancel
 local wizard_finish
+local wxhb_position_for_half
 
 -- Public functions (alphabetical)
 
@@ -530,6 +549,7 @@ build_defaults = function()
       expand_lt_rt = { set = 4, half = 'right' },
       expand_rt_lt = { set = 4, half = 'right' },
     },
+    always_show_wxhb = false,
     hide_empty_slots = false,
     skillchain_display = true,
     transparency_standard = 0,
@@ -540,25 +560,48 @@ build_defaults = function()
   }
 end
 
+-- Per-half content resolution (WXHB always-show amendment). base_position is
+-- exactly what pre-amendment build_view resolved for the whole 16-slot view;
+-- it still drives both halves whenever always_show_wxhb is off or a half has
+-- no WXHB view assigned to it, so that case stays byte-for-byte identical to
+-- today. Only the half that is neither live-engaged nor covered by an
+-- assigned wxhb_l/wxhb_r view falls through to base_position as a fallback --
+-- which is today's active_set fallback while idle, and today's single-
+-- position behavior while a gesture is live. An engaged Expanded gesture
+-- (EXPAND_DISPLAY_MODES) owns BOTH halves from base_position -- the override
+-- never applies while one is live, so Expanded stays byte-for-byte identical
+-- to today regardless of always_show_wxhb (Resolved Decision 2).
 build_view = function()
   local display_mode = current_display
-  local position = live_settings.active_set or 1
+  local base_position = live_settings.active_set or 1
+  local live_half
   if display_mode then
-    local assigned = display_target(display_mode)
+    local assigned, half = display_target(display_mode)
     if assigned then
-      position = assigned
+      base_position = assigned
+      live_half = half
     end
   end
-  local content = set_content(position)
+  local expanded_live = EXPAND_DISPLAY_MODES[display_mode] or false
   local slots = {}
-  for index = 1, 16 do
-    local slot = content and content.slots and content.slots[index] or nil
-    slots[index] = action.resolve_binding(slot, player_state)
+  for _, screen_half in ipairs(SCREEN_HALVES) do
+    local position = base_position
+    if live_settings.always_show_wxhb and not expanded_live and screen_half.half ~= live_half then
+      local wxhb_position = wxhb_position_for_half(screen_half.half)
+      if wxhb_position then
+        position = wxhb_position
+      end
+    end
+    local content = set_content(position)
+    for index = screen_half.from, screen_half.to do
+      local slot = content and content.slots and content.slots[index] or nil
+      slots[index] = action.resolve_binding(slot, player_state)
+    end
   end
-  local meta = live_settings.sets and live_settings.sets[position]
+  local meta = live_settings.sets and live_settings.sets[base_position]
   return {
-    active_set   = position,
-    set_name     = (meta and meta.name) or ('Set ' .. tostring(position)),
+    active_set   = base_position,
+    set_name     = (meta and meta.name) or ('Set ' .. tostring(base_position)),
     mode         = live_settings.current_mode,
     display_mode = display_mode,
     slots        = slots,
@@ -1032,6 +1075,29 @@ wizard_finish = function(new_mapping)
   end
   keyboard.configure(new_mapping)
   exit_learn_mode()
+end
+
+-- WXHB-only per Resolved Decision 2 (expand_lt_rt/expand_rt_lt never
+-- consulted); wxhb_l checked before wxhb_r so a misconfigured settings file
+-- assigning both to the same half resolves deterministically. A half only
+-- "wins" here if its .set is actually usable -- a hand-edited/corrupted
+-- entry with .half set but no .set falls through to the other view instead
+-- of masking it. This is only the "is a WXHB view assigned to this half"
+-- predicate -- callers (build_view) are responsible for never invoking it
+-- while an Expanded gesture is live (EXPAND_DISPLAY_MODES); hud.lua's
+-- always_show_half mirrors this same predicate and the same caller-side
+-- exclusion, so keep both in sync.
+wxhb_position_for_half = function(half)
+  local display = live_settings.display
+  local wl = display and display.wxhb_l
+  if wl and wl.half == half and wl.set ~= nil then
+    return wl.set
+  end
+  local wr = display and display.wxhb_r
+  if wr and wr.half == half and wr.set ~= nil then
+    return wr.set
+  end
+  return nil
 end
 
 host = {

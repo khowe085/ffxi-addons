@@ -42,6 +42,7 @@ local function make_staged()
     config_x = 100,
     config_y = 100,
     hide_empty_slots = false,
+    always_show_wxhb = false,
     skillchain_display = true,
     transparency_standard = 0,
     transparency_active = 0,
@@ -156,6 +157,7 @@ test('mutators without a staging session are safe no-ops', function()
   config_ui.cycle_display_set('wxhb_l')
   config_ui.toggle_display_half('wxhb_l')
   config_ui.toggle_hide_empty_slots()
+  config_ui.toggle_always_show_wxhb()
   config_ui.toggle_skillchain_display()
   config_ui.adjust_transparency('standard', 10)
   config_ui.add_gesture({ id = 'x' })
@@ -303,6 +305,43 @@ test('toggle_hide_empty_slots flips the boolean', function()
   assert_eq(true, current.hide_empty_slots, 'false -> true')
   config_ui.toggle_hide_empty_slots()
   assert_eq(false, current.hide_empty_slots, 'true -> false')
+end)
+
+test('Display tab renders the always_show_wxhb toggle row', function()
+  setup()
+  local tab = config_ui.build_tabs(current)[2]
+  local idx
+  for i, text in ipairs(row_texts(tab)) do
+    if text:find('always_show_wxhb', 1, true) then idx = i end
+  end
+  assert_true(idx ~= nil, 'always_show_wxhb row present')
+  assert_true(tab.rows[idx].text:find('always_show_wxhb: false', 1, true) ~= nil,
+    'row renders the staged value')
+  assert_true(tab.rows[idx].on_click ~= nil, 'row is clickable')
+end)
+
+test('toggle_always_show_wxhb flips the boolean through on_change', function()
+  setup()
+  config_ui.toggle_always_show_wxhb()
+  assert_eq(true, current.always_show_wxhb, 'false -> true')
+  assert_eq('always_show_wxhb', changes[1].key, 'staged under its settings key')
+  assert_eq(true, changes[1].value, 'flipped value handed to on_change')
+  config_ui.toggle_always_show_wxhb()
+  assert_eq(false, current.always_show_wxhb, 'true -> false')
+end)
+
+test('clicking the always_show_wxhb row stages the flipped value', function()
+  setup(false)
+  local tab = config_ui.build_tabs(current)[2]
+  local idx
+  for i, text in ipairs(row_texts(tab)) do
+    if text:find('always_show_wxhb', 1, true) then idx = i end
+  end
+  tab.rows[idx].on_click(0)
+  assert_eq(1, #changes, 'one change staged')
+  assert_eq('always_show_wxhb', changes[1].key, 'routed through on_change')
+  assert_eq(true, changes[1].value, 'flipped value staged, staged table untouched')
+  assert_eq(false, current.always_show_wxhb, 'module never writes the staged table')
 end)
 
 test('Display tab renders the skillchain_display toggle row', function()
