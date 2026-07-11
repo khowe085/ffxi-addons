@@ -371,6 +371,15 @@ function config_gui.new(opts)
     install_tabs(state, tabs)
     if state.open then
       layout(state, state.anchor_x, state.anchor_y)
+      -- install_tabs destroys and recreates the tab labels hidden; while the
+      -- window is open they must come back visible or the first set_tabs
+      -- blanks the tab bar (leaving invisible tabs clickable). A single-tab
+      -- window keeps its bar hidden.
+      if has_tab_bar(state) then
+        for _, label in ipairs(state.tab_labels) do
+          label:show()
+        end
+      end
       render_active(state)
     end
   end

@@ -1,0 +1,3 @@
+# Ported third-party code keeps its upstream formatting
+# (see .planning/xivgamepad-crossbar-features.md, crossbar/ subtree rule).
+xivgamepad/crossbar/
